@@ -6,6 +6,7 @@ import 'pagination.dart';
 import 'platform.dart';
 import 'page_jump_dialog.dart';
 import 'page_count_summary.dart';
+import 'page_index_controller.dart';
 
 class ReaderScreen extends StatefulWidget {
   final LibraryModel model;
@@ -24,6 +25,7 @@ class ReaderScreen extends StatefulWidget {
 class _ReaderScreenState extends State<ReaderScreen>
     with WidgetsBindingObserver {
   PageSession? session;
+  PageIndexController? pageIndex;
   int generation = 0;
   bool paginating = true, menuOpen = false;
   String? layoutKey;
@@ -50,6 +52,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     if (state == AppLifecycleState.resumed) {
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     } else {
+      pageIndex?.flush();
       widget.model.save();
     }
   }
@@ -57,6 +60,8 @@ class _ReaderScreenState extends State<ReaderScreen>
   @override
   void dispose() {
     generation++;
+    pageIndex?.close();
+    pageIndex = null;
     session?.dispose();
     saveTimer?.cancel();
     widget.model.save();
@@ -98,6 +103,8 @@ class _ReaderScreenState extends State<ReaderScreen>
       style: style,
       spacing: spacing,
     );
+    pageIndex?.close();
+    pageIndex = null;
     session?.dispose();
     setState(() {
       session = next;
@@ -119,34 +126,19 @@ class _ReaderScreenState extends State<ReaderScreen>
     final layout =
         'goyo-pages-v1/flutter-3.35.7/${active.size.width}/${active.size.height}/'
         '${active.style.fontFamily}/${active.style.fontSize}/${active.style.height}/${active.spacing}/${active.style.letterSpacing}';
-    Map<String, dynamic>? cache;
-    try {
-      cache = await widget.model.platform.loadPageIndex(widget.book.id, layout);
-    } catch (_) {
-      /* Optional cache miss. */
-    }
     if (!valid()) return;
-    final raw = cache?['ends'];
-    if (raw is List &&
-        raw.every((value) => value is int) &&
-        active.restorePageEnds(raw.cast<int>()))
-      return;
-    await active.countAll();
-    if (!valid() ||
-        !active.indexComplete ||
-        active.totalPages! > 200000 ||
-        cache?['token'] is! String)
-      return;
-    try {
-      await widget.model.platform.savePageIndex(
+    final controller = PageIndexController(
+      session: active,
+      load: () => widget.model.platform.loadPageIndex(widget.book.id, layout),
+      save: (token, ends) => widget.model.platform.savePageIndex(
         widget.book.id,
         layout,
-        cache!['token'] as String,
-        active.pageEnds,
-      );
-    } catch (_) {
-      /* The book remains readable without a disk cache. */
-    }
+        token,
+        ends,
+      ),
+    );
+    pageIndex = controller;
+    await controller.start();
   }
 
   void turn(int direction) {
@@ -341,6 +333,8 @@ class _ReaderScreenState extends State<ReaderScreen>
               '${size.width}/${size.height}/${settings.font}/${settings.fontSize}/${settings.lineHeight}/${settings.paragraphSpace}';
           if (key != layoutKey) {
             layoutKey = key;
+            pageIndex?.close();
+            pageIndex = null;
             session?.dispose();
             session = null;
             paginating = true;

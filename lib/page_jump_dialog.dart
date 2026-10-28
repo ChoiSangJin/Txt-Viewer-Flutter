@@ -128,7 +128,7 @@ class _PageJumpDialogState extends State<PageJumpDialog> {
             ),
             const SizedBox(height: 8),
             Text(
-              '이동할 쪽: ${widget.session.pageNumberAt((widget.session.text.length * percent / 100).floor()) ?? '계산 중'} / ${widget.session.totalPages ?? '계산 중'}쪽',
+              '이동할 쪽: ${widget.session.pageNumberAt((widget.session.text.length * percent / 100).floor()) ?? '약 ${widget.session.estimatedPageAt((widget.session.text.length * percent / 100).floor()) ?? '?'}'} / ${widget.session.totalPages ?? '약 ${widget.session.estimatedTotalPages ?? '?'}'}쪽',
               key: const ValueKey('target-page-preview'),
             ),
             FilledButton(

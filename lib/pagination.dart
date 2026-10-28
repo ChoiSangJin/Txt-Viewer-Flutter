@@ -68,6 +68,25 @@ PageRange nextPage(
         low = high;
       }
     }
+    // The oversized paragraph already knows where the bottom visible line is.
+    // Probe its start to narrow the exact search to roughly one line, rather
+    // than repeatedly laying out every possible page-sized substring.
+    // Paragraph spacing can make a trailing newline's height differ from the
+    // same newline followed by text. Keep the established search for those
+    // mixed-height spans; use the shortcut only within a single paragraph.
+    if (low < high && !text.substring(start, high).contains('\n')) {
+      final local = painter.getPositionForOffset(Offset(0, size.height)).offset;
+      var probe =
+          start + painter.getLineBoundary(TextPosition(offset: local)).start;
+      if (_betweenSurrogates(text, probe)) probe--;
+      if (probe > low && probe < high) {
+        if (fits(probe)) {
+          low = probe;
+        } else {
+          high = probe - 1;
+        }
+      }
+    }
     while (low < high) {
       final middle = (low + high + 1) ~/ 2;
       if (fits(middle)) {
@@ -186,6 +205,27 @@ class PageSession extends ChangeNotifier {
   double get indexProgress => text.isEmpty
       ? (indexComplete ? 1 : 0)
       : (_ends.isEmpty ? 0 : _ends.last / text.length);
+  int? get estimatedTotalPages {
+    if (indexComplete) return totalPages;
+    if (_ends.isEmpty || _ends.last == 0) return null;
+    return (_ends.length * text.length / _ends.last).ceil().clamp(
+      _ends.length + 1,
+      text.length,
+    );
+  }
+
+  int? estimatedPageAt(int offset) {
+    final exact = pageNumberAt(offset);
+    if (exact != null) return exact;
+    final total = estimatedTotalPages;
+    if (total == null || text.isEmpty) return null;
+    return (offset.clamp(0, text.length) * total / text.length).floor().clamp(
+          0,
+          total - 1,
+        ) +
+        1;
+  }
+
   List<int> get pageEnds => List<int>.unmodifiable(_ends);
   PageRange _pageAt(int i) => PageRange(i == 0 ? 0 : _ends[i - 1], _ends[i]);
 
@@ -243,12 +283,14 @@ class PageSession extends ChangeNotifier {
     return null;
   }
 
-  bool restorePageEnds(List<int> values) {
-    if (_closed ||
-        values.isEmpty ||
-        values.length > 200000 ||
-        values.last != text.length)
-      return false;
+  bool restorePageEnds(List<int> values) =>
+      values.isNotEmpty &&
+      values.last == text.length &&
+      restorePagePrefix(values);
+
+  /// A validated canonical prefix can be resumed without measuring it again.
+  bool restorePagePrefix(List<int> values) {
+    if (_closed || values.isEmpty || values.length > 200000) return false;
     var previous = 0;
     for (final end in values) {
       if (end < 0 ||
