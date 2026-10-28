@@ -130,4 +130,45 @@ void main() {
       await tester.pump();
     },
   );
+  testWidgets(
+    'page jump with the keyboard visible updates and persists reading position',
+    (tester) async {
+      addTearDown(tester.view.resetViewInsets);
+      final platform = FakePlatform()
+        ..text = List.filled(3000, '한글 소설의 문장입니다. 다음 문단을 읽습니다.\n').join();
+      final model = LibraryModel(platform);
+      final book = Book('jump-book', '이동할 책.txt');
+      model.books.add(book);
+      await tester.pumpWidget(ReaderApp(model: model));
+      await tester.tap(find.text(book.name));
+      for (var i = 0; i < 80; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)),
+        );
+        await tester.pump(const Duration(milliseconds: 30));
+        if (find.byTooltip('페이지 이동').evaluate().isNotEmpty &&
+            find.byType(CircularProgressIndicator).evaluate().isEmpty)
+          break;
+      }
+      await tester.tap(find.byTooltip('페이지 이동'));
+      await tester.pumpAndSettle();
+      tester.view.viewInsets = const FakeViewPadding(bottom: 180);
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).first, '50');
+      await tester.pump();
+      await tester.ensureVisible(find.text('위치로 이동'));
+      await tester.tap(find.text('위치로 이동'));
+      await tester.pumpAndSettle();
+      tester.view.resetViewInsets();
+      await tester.pumpAndSettle();
+      expect(book.offset, (platform.text.length / 2).floor());
+      await model.save();
+      final restored = LibraryModel(platform);
+      await restored.load();
+      expect(restored.books.single.offset, book.offset);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+    },
+  );
 }

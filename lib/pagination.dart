@@ -160,6 +160,7 @@ class PageSession {
   final TextStyle style;
   final double spacing;
   final List<PageRange> _pages = [];
+  final List<PageRange> _numbered = [];
   int _current = 0;
   PageSession({
     required this.text,
@@ -168,14 +169,69 @@ class PageSession {
     required this.spacing,
     int offset = 0,
   }) {
+    seekOffset(offset);
+  }
+
+  void seekOffset(int offset) {
     var anchor = offset.clamp(0, text.length);
+    _pages.clear();
+    _current = 0;
     if (_betweenSurrogates(text, anchor)) anchor--;
     _pages.add(
       anchor == text.length && text.isNotEmpty
-          ? previousPage(text, anchor, size, style, spacing)
-          : nextPage(text, anchor, size, style, spacing),
+          ? (_knownPage(anchor, endingAt: true) ??
+                previousPage(text, anchor, size, style, spacing))
+          : (_knownPage(anchor) ??
+                nextPage(text, anchor, size, style, spacing)),
     );
   }
+
+  PageRange? _knownPage(int boundary, {bool endingAt = false}) {
+    var low = 0, high = _numbered.length - 1;
+    while (low <= high) {
+      final middle = (low + high) ~/ 2;
+      final page = _numbered[middle];
+      final value = endingAt ? page.end : page.start;
+      if (value == boundary) return page;
+      if (value < boundary) {
+        low = middle + 1;
+      } else {
+        high = middle - 1;
+      }
+    }
+    return null;
+  }
+
+  Future<PageLocation?> locatePage(
+    int number, {
+    bool Function()? cancelled,
+  }) async {
+    if (number < 1) throw ArgumentError.value(number, 'number');
+    var batch = 0;
+    final budget = Stopwatch()..start();
+    while (_numbered.length < number) {
+      if (cancelled?.call() == true) return null;
+      if (_numbered.isNotEmpty && _numbered.last.end >= text.length) break;
+      _numbered.add(
+        nextPage(
+          text,
+          _numbered.isEmpty ? 0 : _numbered.last.end,
+          size,
+          style,
+          spacing,
+        ),
+      );
+      if (++batch >= 4 || budget.elapsedMilliseconds >= 8) {
+        await Future<void>.delayed(Duration.zero);
+        batch = 0;
+        budget.reset();
+      }
+    }
+    if (cancelled?.call() == true) return null;
+    final actual = number.clamp(1, _numbered.length);
+    return PageLocation(actual, _numbered[actual - 1]);
+  }
+
   PageRange get range => _pages[_current];
   int get cachedPageCount => _pages.length;
   bool get canPrevious => range.start > 0;
@@ -186,17 +242,30 @@ class PageSession {
     if (direction > 0) {
       if (!canNext) return false;
       if (_current + 1 == _pages.length) {
-        _pages.add(nextPage(text, range.end, size, style, spacing));
+        _pages.add(
+          _knownPage(range.end) ??
+              nextPage(text, range.end, size, style, spacing),
+        );
       }
       _current++;
     } else {
       if (!canPrevious) return false;
       if (_current == 0) {
-        _pages.insert(0, previousPage(text, range.start, size, style, spacing));
+        _pages.insert(
+          0,
+          _knownPage(range.start, endingAt: true) ??
+              previousPage(text, range.start, size, style, spacing),
+        );
       } else {
         _current--;
       }
     }
     return true;
   }
+}
+
+class PageLocation {
+  final int number;
+  final PageRange range;
+  const PageLocation(this.number, this.range);
 }

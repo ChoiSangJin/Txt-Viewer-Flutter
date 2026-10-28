@@ -22,6 +22,7 @@ class MainActivity : FlutterActivity() {
     private val io = Executors.newSingleThreadExecutor()
     private val pickRequest = 4201
     private val folderRequest = 4202
+    private var expectedFolder: String? = null
     private var folderScan: CancellationSignal? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -47,20 +48,13 @@ class MainActivity : FlutterActivity() {
                         }
                     }
                 }
-                "pickFolder" -> {
-                    if (pendingPick != null) {
-                        result.error("BUSY", "선택기가 이미 열려 있습니다.", null)
-                    } else {
-                        pendingPick = result
-                        try {
-                            startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
-                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
-                            }, folderRequest)
-                        } catch (e: Exception) {
-                            pendingPick = null
-                            result.error("PICKER", "폴더 선택기를 열 수 없습니다.", null)
-                        }
-                    }
+                "pickFolder" -> pickFolder(result, null)
+                "authorizeFolder" -> pickFolder(result, call.arguments as String)
+                "deleteDocument" -> background(result) {
+                    val args = call.arguments as Map<*, *>
+                    FolderStorage(this).delete(Uri.parse(args["treeUri"] as String),
+                        Uri.parse(args["documentUri"] as String), args["expectedName"] as String)
+                    null
                 }
                 "listFolder" -> {
                     folderScan?.cancel()
@@ -68,7 +62,7 @@ class MainActivity : FlutterActivity() {
                     folderScan = signal
                     val args = call.arguments as Map<*, *>
                     background(result) {
-                        FolderStorage(contentResolver).list(
+                        FolderStorage(this).list(
                             Uri.parse(args["treeUri"] as String),
                             (args["parentUri"] as String?)?.let { Uri.parse(it) },
                             args["query"] as String? ?: "", signal
@@ -77,10 +71,14 @@ class MainActivity : FlutterActivity() {
                 }
                 "cancelFolderScan" -> { folderScan?.cancel(); result.success(null) }
                 "releaseFolder" -> background(result) {
-                    try {
-                        contentResolver.releasePersistableUriPermission(
-                            Uri.parse(call.arguments as String), Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                    } catch (_: SecurityException) { /* Already revoked by the user/provider. */ }
+                    val uri = Uri.parse(call.arguments as String)
+                    val permission = contentResolver.persistedUriPermissions.firstOrNull { it.uri == uri }
+                    if (permission != null) {
+                        val flags = (if (permission.isReadPermission) Intent.FLAG_GRANT_READ_URI_PERMISSION else 0) or
+                            (if (permission.isWritePermission) Intent.FLAG_GRANT_WRITE_URI_PERMISSION else 0)
+                        try { contentResolver.releasePersistableUriPermission(uri, flags) }
+                        catch (_: SecurityException) { /* Already revoked. */ }
+                    }
                     null
                 }
                 "importDocument" -> background(result) {
@@ -110,6 +108,26 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    private fun pickFolder(result: MethodChannel.Result, expected: String?) {
+        if (pendingPick != null) { result.error("BUSY", "선택기가 이미 열려 있습니다.", null); return }
+        pendingPick = result
+        expectedFolder = expected
+        try {
+            startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).apply {
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION or
+                    Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION)
+                if (expected != null && android.os.Build.VERSION.SDK_INT >= 26) {
+                    val tree = Uri.parse(expected)
+                    putExtra(DocumentsContract.EXTRA_INITIAL_URI, DocumentsContract.buildDocumentUriUsingTree(
+                        tree, DocumentsContract.getTreeDocumentId(tree)))
+                }
+            }, folderRequest)
+        } catch (e: Exception) {
+            pendingPick = null; expectedFolder = null
+            result.error("PICKER", "폴더 선택기를 열 수 없습니다.", null)
+        }
+    }
+
     private fun background(result: MethodChannel.Result, block: () -> Any?) {
         io.execute {
             try { val value = block(); runOnUiThread { result.success(value) } }
@@ -125,13 +143,18 @@ class MainActivity : FlutterActivity() {
         if (requestCode != pickRequest && requestCode != folderRequest) return
         val result = pendingPick ?: return
         pendingPick = null
+        val expected = expectedFolder
+        expectedFolder = null
         val uri = data?.data
         if (resultCode != Activity.RESULT_OK || uri == null) { result.success(null); return }
         background(result) {
             if (requestCode == folderRequest) {
-                val flags = ((data?.flags ?: 0) and Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                require(flags != 0) { "폴더 읽기 권한을 허용해 주세요." }
+                require(expected == null || uri.toString() == expected) { "같은 즐겨찾기 폴더를 선택해 주세요." }
+                val flags = ((data?.flags ?: 0) and
+                    (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION))
+                require((flags and Intent.FLAG_GRANT_READ_URI_PERMISSION) != 0) { "폴더 읽기 권한을 허용해 주세요." }
                 contentResolver.takePersistableUriPermission(uri, flags)
+                check(expected == null || (flags and Intent.FLAG_GRANT_WRITE_URI_PERMISSION) != 0) { "폴더 쓰기 권한이 허용되지 않았습니다." }
                 val document = DocumentsContract.buildDocumentUriUsingTree(uri, DocumentsContract.getTreeDocumentId(uri))
                 val name = displayName(document, "즐겨찾기 폴더")
                 mapOf("uri" to uri.toString(), "name" to name)

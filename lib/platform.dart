@@ -26,6 +26,19 @@ class ReaderPlatform {
     return FolderListing.fromJson(result!);
   }
 
+  Future<bool> authorizeFolder(String uri) async =>
+      await channel.invokeMapMethod<String, dynamic>('authorizeFolder', uri) !=
+      null;
+  Future<void> deleteDocument(
+    String treeUri,
+    String documentUri,
+    String expectedName,
+  ) => channel.invokeMethod('deleteDocument', {
+    'treeUri': treeUri,
+    'documentUri': documentUri,
+    'expectedName': expectedName,
+  });
+
   Future<void> cancelFolderScan() => channel.invokeMethod('cancelFolderScan');
   Future<void> releaseFolder(String uri) =>
       channel.invokeMethod('releaseFolder', uri);
