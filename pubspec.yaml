@@ -1,7 +1,7 @@
 name: txt_viewer
 description: 오프라인 소설을 위한 Android TXT 리더
 publish_to: none
-version: 1.0.0+1
+version: 1.1.0+2
 environment:
   sdk: '>=3.9.0 <4.0.0'
 dependencies:
