@@ -7,6 +7,7 @@ import 'platform.dart';
 import 'page_jump_dialog.dart';
 import 'page_count_summary.dart';
 import 'page_index_controller.dart';
+import 'numeric_reading_setting.dart';
 
 class ReaderScreen extends StatefulWidget {
   final LibraryModel model;
@@ -197,117 +198,107 @@ class _ReaderScreenState extends State<ReaderScreen>
             setState(() {});
           }
 
-          Widget slider(
-            String label,
-            double value,
-            double min,
-            double max,
-            ValueChanged<double> update,
-          ) => Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('$label  ${value.toStringAsFixed(1)}'),
-              Slider(
-                value: value,
-                min: min,
-                max: max,
-                label: value.toStringAsFixed(1),
-                onChanged: (v) => change(() => update(v)),
-              ),
-            ],
-          );
           return SafeArea(
-            child: SingleChildScrollView(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Row(
-                      children: [
-                        const Expanded(
-                          child: Text('읽기 설정', style: TextStyle(fontSize: 22)),
-                        ),
-                        IconButton(
-                          tooltip: '설정 닫기',
-                          onPressed: () => Navigator.pop(context),
-                          icon: const Icon(Icons.close),
-                        ),
-                      ],
-                    ),
-                    const Text('좌우 탭 · 스와이프 · 볼륨 버튼으로 페이지 이동'),
-                    const SizedBox(height: 16),
-                    DropdownButtonFormField<String>(
-                      initialValue: settings.font,
-                      decoration: const InputDecoration(labelText: '글꼴'),
-                      items: const [
-                        DropdownMenuItem(
-                          value: 'RIDIBatang',
-                          child: Text('리디바탕'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'KoPubBatang',
-                          child: Text('KoPub 바탕'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'Pretendard',
-                          child: Text('프리텐다드'),
-                        ),
-                      ],
-                      onChanged: (v) {
-                        if (v != null) change(() => settings.font = v);
-                      },
-                    ),
-                    const SizedBox(height: 16),
-                    slider(
-                      '글자 크기',
-                      settings.fontSize,
-                      14,
-                      36,
-                      (v) => settings.fontSize = v,
-                    ),
-                    slider(
-                      '줄 간격',
-                      settings.lineHeight,
-                      1.2,
-                      2.4,
-                      (v) => settings.lineHeight = v,
-                    ),
-                    slider(
-                      '문단 여백',
-                      settings.paragraphSpace,
-                      0,
-                      32,
-                      (v) => settings.paragraphSpace = v,
-                    ),
-                    Wrap(
-                      spacing: 8,
-                      children: [
-                        for (final theme in ReaderTheme.values)
-                          ChoiceChip(
-                            label: Text(switch (theme) {
-                              ReaderTheme.system => '시스템',
-                              ReaderTheme.light => '라이트',
-                              ReaderTheme.dark => '다크',
-                              ReaderTheme.black => 'AMOLED 블랙',
-                            }),
-                            selected: settings.theme == theme,
-                            onSelected: (_) =>
-                                change(() => settings.theme = theme),
+            child: Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.viewInsetsOf(context).bottom,
+              ),
+              child: SingleChildScrollView(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          const Expanded(
+                            child: Text(
+                              '읽기 설정',
+                              style: TextStyle(fontSize: 22),
+                            ),
                           ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    TextButton.icon(
-                      onPressed: () {
-                        Navigator.pop(context);
-                        Navigator.of(this.context).pop();
-                      },
-                      icon: const Icon(Icons.library_books_outlined),
-                      label: const Text('서재로 돌아가기'),
-                    ),
-                  ],
+                          IconButton(
+                            tooltip: '설정 닫기',
+                            onPressed: () => Navigator.pop(context),
+                            icon: const Icon(Icons.close),
+                          ),
+                        ],
+                      ),
+                      const Text('좌우 탭 · 스와이프 · 볼륨 버튼으로 페이지 이동'),
+                      const SizedBox(height: 16),
+                      DropdownButtonFormField<String>(
+                        initialValue: settings.font,
+                        decoration: const InputDecoration(labelText: '글꼴'),
+                        items: const [
+                          DropdownMenuItem(
+                            value: 'RIDIBatang',
+                            child: Text('리디바탕'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'KoPubBatang',
+                            child: Text('KoPub 바탕'),
+                          ),
+                          DropdownMenuItem(
+                            value: 'Pretendard',
+                            child: Text('프리텐다드'),
+                          ),
+                        ],
+                        onChanged: (v) {
+                          if (v != null) change(() => settings.font = v);
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      NumericReadingSetting(
+                        label: '글자 크기',
+                        value: settings.fontSize,
+                        min: 14,
+                        max: 36,
+                        onChanged: (v) => change(() => settings.fontSize = v),
+                      ),
+                      NumericReadingSetting(
+                        label: '줄 간격',
+                        value: settings.lineHeight,
+                        min: 1.2,
+                        max: 2.4,
+                        onChanged: (v) => change(() => settings.lineHeight = v),
+                      ),
+                      NumericReadingSetting(
+                        label: '문단 여백',
+                        value: settings.paragraphSpace,
+                        min: 0,
+                        max: 32,
+                        onChanged: (v) =>
+                            change(() => settings.paragraphSpace = v),
+                      ),
+                      Wrap(
+                        spacing: 8,
+                        children: [
+                          for (final theme in ReaderTheme.values)
+                            ChoiceChip(
+                              label: Text(switch (theme) {
+                                ReaderTheme.system => '시스템',
+                                ReaderTheme.light => '라이트',
+                                ReaderTheme.dark => '다크',
+                                ReaderTheme.black => 'AMOLED 블랙',
+                              }),
+                              selected: settings.theme == theme,
+                              onSelected: (_) =>
+                                  change(() => settings.theme = theme),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      TextButton.icon(
+                        onPressed: () {
+                          Navigator.pop(context);
+                          Navigator.of(this.context).pop();
+                        },
+                        icon: const Icon(Icons.library_books_outlined),
+                        label: const Text('서재로 돌아가기'),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),

@@ -45,6 +45,60 @@ void main() {
     expect(restored.settings.paragraphSpace, 24);
     expect(jsonDecode(platform.state!)['books'], hasLength(1));
   });
+  testWidgets(
+    'numeric reading settings apply, preserve position and persist with keyboard open',
+    (tester) async {
+      tester.view.physicalSize = const Size(360, 720);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetViewInsets);
+      final platform = FakePlatform();
+      final model = LibraryModel(platform);
+      model.books.add(Book('numeric', '숫자 설정.txt', offset: 200));
+      await tester.pumpWidget(ReaderApp(model: model));
+      await tester.tap(find.text('숫자 설정.txt'));
+      for (var i = 0; i < 80; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)),
+        );
+        await tester.pump(const Duration(milliseconds: 30));
+        if (find.byTooltip('읽기 설정').evaluate().isNotEmpty &&
+            find.byType(CircularProgressIndicator).evaluate().isEmpty)
+          break;
+      }
+      final anchor = model.books.single.offset;
+      await tester.tap(find.byTooltip('읽기 설정'));
+      await tester.pumpAndSettle();
+      tester.view.viewInsets = const FakeViewPadding(bottom: 260);
+      await tester.pumpAndSettle();
+      final fields = find.byType(TextField);
+      for (var i = 0; i < 3; i++) {
+        await tester.ensureVisible(fields.at(i));
+        await tester.enterText(fields.at(i), ['25.5', '1.85', '0'][i]);
+        await tester.testTextInput.receiveAction(TextInputAction.done);
+        await tester.pumpAndSettle();
+        expect(tester.takeException(), isNull);
+      }
+      expect(model.settings.fontSize, 25.5);
+      expect(model.settings.lineHeight, 1.85);
+      expect(model.settings.paragraphSpace, 0);
+      expect(model.books.single.offset, anchor);
+      tester.view.resetViewInsets();
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byTooltip('설정 닫기'));
+      await tester.tap(find.byTooltip('설정 닫기'));
+      await tester.pumpAndSettle();
+      final restored = LibraryModel(platform);
+      await restored.load();
+      expect(restored.settings.fontSize, 25.5);
+      expect(restored.settings.lineHeight, 1.85);
+      expect(restored.settings.paragraphSpace, 0);
+      expect(restored.books.single.offset, anchor);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+    },
+  );
   testWidgets('import, next page, volume previous, and return to library', (
     tester,
   ) async {
@@ -79,9 +133,11 @@ void main() {
     await tester.tap(find.byTooltip('읽기 설정'));
     await tester.pumpAndSettle();
     expect(find.text('AMOLED 블랙'), findsOneWidget);
+    await tester.ensureVisible(find.text('AMOLED 블랙'));
     await tester.tap(find.text('AMOLED 블랙'));
     await tester.pumpAndSettle();
     expect(model.settings.theme, ReaderTheme.black);
+    await tester.ensureVisible(find.text('서재로 돌아가기'));
     await tester.tap(find.text('서재로 돌아가기'));
     await tester.pumpAndSettle();
     expect(find.text('이야기.txt'), findsOneWidget);
