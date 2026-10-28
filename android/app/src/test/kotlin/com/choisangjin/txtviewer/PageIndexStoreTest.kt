@@ -19,6 +19,14 @@ class PageIndexStoreTest {
         assertTrue(store.save(id, "font20/360x650", key, intArrayOf(3, 6, 8)))
         assertArrayEquals(intArrayOf(3, 6, 8), store.load(id, "font20/360x650")["ends"] as IntArray)
     }
+    @Test fun partialCheckpointCanBeExtendedAfterReopening() {
+        val (store, books, cache) = setup(); val key = store.load(id, "layout")["token"] as String
+        assertTrue(store.save(id, "layout", key, intArrayOf(3)))
+        val reopened = PageIndexStore(books, cache)
+        assertArrayEquals(intArrayOf(3), reopened.load(id, "layout")["ends"] as IntArray)
+        assertTrue(reopened.save(id, "layout", key, intArrayOf(3, 6, 8)))
+        assertArrayEquals(intArrayOf(3, 6, 8), store.load(id, "layout")["ends"] as IntArray)
+    }
     @Test fun layoutChangesInvalidateCachedPages() {
         val (store, _, _) = setup(); val key = store.load(id, "font20")["token"] as String
         store.save(id, "font20", key, intArrayOf(8))

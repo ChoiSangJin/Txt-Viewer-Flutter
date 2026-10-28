@@ -5,6 +5,8 @@ import 'package:txt_viewer/page_jump_dialog.dart';
 import 'package:txt_viewer/main.dart';
 import 'package:txt_viewer/model.dart';
 import 'package:txt_viewer/platform.dart';
+import 'pagination_reference.dart';
+import 'package:txt_viewer/page_count_summary.dart';
 
 const size = Size(360, 650), style = TextStyle(fontSize: 20, height: 1.7);
 final text = List.filled(80, '한글 소설 📖 English 문장입니다.\n다음 문단\n\n').join();
@@ -27,6 +29,57 @@ List<int> referenceEnds() {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+  test('line-position optimization preserves the previous page boundaries', () {
+    final samples = [
+      List.filled(90, '한글 소설 📖 English 문장과 긴 문단입니다. ').join(),
+      List.filled(80, '짧은 줄\n\n다음 줄입니다.\n').join(),
+      List.filled(300, '띄어쓰기없는문장📖').join(),
+      List.filled(100, '  \n\n\n').join(),
+    ];
+    var before = 0, after = 0, pages = 0;
+    for (final sample in samples) {
+      for (final viewport in [const Size(240, 320), const Size(420, 760)]) {
+        for (final font in [14.0, 26.0]) {
+          final style = TextStyle(fontSize: font, height: 1.7);
+          var offset = 0;
+          while (offset < sample.length) {
+            final watch = Stopwatch()..start();
+            final old = legacyNextPage(sample, offset, viewport, style, 12);
+            before += watch.elapsedMicroseconds;
+            watch.reset();
+            final next = nextPage(sample, offset, viewport, style, 12);
+            after += watch.elapsedMicroseconds;
+            expect(
+              next.end,
+              old.end,
+              reason: 'offset $offset / $viewport / $font',
+            );
+            offset = next.end;
+            pages++;
+          }
+        }
+      }
+    }
+    // Informational, without a timing assertion that would be flaky in CI.
+    print('Boundary benchmark: $pages pages, old ${before}us, new ${after}us');
+  });
+  test(
+    'partial prefix resumes and estimates become exact on completion',
+    () async {
+      final ends = referenceEnds();
+      final pages = session(offset: text.length ~/ 2);
+      final anchor = pages.range.start;
+      expect(pages.restorePagePrefix(ends.take(3).toList()), isTrue);
+      expect(pages.indexComplete, isFalse);
+      expect(pages.estimatedTotalPages, greaterThan(3));
+      expect(pages.estimatedPageAt(text.length), pages.estimatedTotalPages);
+      await pages.countAll(pause: Duration.zero);
+      expect(pages.pageEnds, ends);
+      expect(pages.estimatedTotalPages, pages.totalPages);
+      expect(pages.range.start, anchor);
+      pages.dispose();
+    },
+  );
   test(
     'background count matches canonical pages and does not change visible content',
     () async {
@@ -118,6 +171,37 @@ void main() {
       expect(lookup.range.end, referenceEnds()[7]);
       expect(pages.pageEnds, referenceEnds());
       expect(pages.range.start, 1263);
+      pages.dispose();
+    },
+  );
+  testWidgets(
+    'compact count separates estimates, calculation and reading progress',
+    (tester) async {
+      final pages = session();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Center(
+              child: SizedBox(
+                width: 220,
+                height: 40,
+                child: PageCountSummary(session: pages, compact: true),
+              ),
+            ),
+          ),
+        ),
+      );
+      expect(find.textContaining('약'), findsOneWidget);
+      expect(find.textContaining('쪽수 계산'), findsOneWidget);
+      expect(find.textContaining('읽기'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      final ends = referenceEnds();
+      pages.restorePageEnds(ends);
+      await tester.pump();
+      expect(find.textContaining('1 / ${ends.length}쪽'), findsOneWidget);
+      expect(find.textContaining('약'), findsNothing);
+      expect(find.textContaining('쪽수 계산'), findsNothing);
+      await tester.pumpWidget(const SizedBox.shrink());
       pages.dispose();
     },
   );
