@@ -268,6 +268,7 @@ void main() {
       expect(total, greaterThan(1));
       await tester.tap(find.byTooltip('읽기 설정'));
       await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('서재로 돌아가기'));
       await tester.tap(find.text('서재로 돌아가기'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('쪽수 캐시.txt'));
