@@ -171,6 +171,8 @@ class _FolderScreenState extends State<FolderScreen> {
                         widget.folder.name,
                         ...trail.map((e) => e.name),
                       ].join(' / '),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.labelMedium,
                     ),
                     const SizedBox(height: 12),

@@ -271,4 +271,26 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump();
   });
+  testWidgets('long folder paths fit a compact phone without overflowing', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(320, 568);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final folder = FavoriteFolder(
+      uri: favorite.uri,
+      name: List.filled(120, '긴 폴더 이름').join('/'),
+    );
+    await tester.pumpWidget(
+      MaterialApp(
+        home: FolderScreen(
+          model: LibraryModel(FolderPlatform()),
+          folder: folder,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+  });
 }
