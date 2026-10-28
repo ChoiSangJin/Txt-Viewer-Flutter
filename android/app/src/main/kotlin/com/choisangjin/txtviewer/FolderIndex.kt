@@ -5,7 +5,7 @@ import java.util.Locale
 
 /** Traversal is independent of the Android provider so limits and cycles are testable. */
 class FolderIndex(private val maxVisited: Int = 20000, private val maxResults: Int = 2000) {
-    data class Node(val id: String, val name: String, val directory: Boolean = false, val modified: Long = 0)
+    data class Node(val id: String, val name: String, val directory: Boolean = false, val modified: Long = 0, val deletable: Boolean = false)
     data class Entry(val node: Node, val path: String)
     data class Result(val entries: List<Entry>, val truncated: Boolean)
     private data class Directory(val id: String, val path: String)

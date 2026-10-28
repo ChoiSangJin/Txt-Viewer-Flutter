@@ -6,6 +6,7 @@ import 'platform.dart';
 import 'reader.dart';
 import 'folder_models.dart';
 import 'folder_screen.dart';
+import 'confirmation.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -102,6 +103,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
         text = imported['text'] as String;
       } else {
         text = await widget.model.platform.readBook(book.id);
+        widget.model.markOpened(book);
       }
       if (!mounted) return;
       await Navigator.of(context).push(
@@ -128,9 +130,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
       if (folder != null) {
         final added = widget.model.addFolder(folder);
         if (mounted && !added)
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text('이미 즐겨찾기에 있는 폴더입니다.')));
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('기존 즐겨찾기 폴더의 접근 권한을 갱신했습니다.')),
+          );
       }
     } catch (_) {
       if (mounted) setState(() => error = '폴더를 추가하지 못했습니다. 폴더 읽기 권한을 허용해 주세요.');
@@ -139,7 +141,26 @@ class _LibraryScreenState extends State<LibraryScreen> {
     }
   }
 
+  Future<void> hideBook(Book book) async {
+    final confirmed = await confirmAction(
+      context,
+      title: '최근 이력에서 지울까요?',
+      message:
+          '${book.name}\n\n원본 파일과 앱에 보관한 사본, 읽던 위치는 유지됩니다. 다시 열면 최근 이력에 표시됩니다.',
+      confirmLabel: '이력에서 지우기',
+    );
+    if (!mounted || !confirmed) return;
+    setState(() => widget.model.hideBook(book));
+  }
+
   Future<void> removeFolder(FavoriteFolder folder) async {
+    final confirmed = await confirmAction(
+      context,
+      title: '폴더 즐겨찾기를 해제할까요?',
+      message: '${folder.name}\n\n원본 폴더와 파일, 앱의 읽기 사본은 유지됩니다.',
+      confirmLabel: '즐겨찾기 해제',
+    );
+    if (!mounted || !confirmed) return;
     setState(() {
       busy = true;
       error = null;
@@ -157,7 +178,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   Widget build(BuildContext context) {
     final blocked = busy || widget.startupError != null;
     final query = search.text.trim().toLowerCase();
-    final books = widget.model.books
+    final books = widget.model.recentBooks
         .where((book) => book.name.toLowerCase().contains(query))
         .toList();
     final folders =
@@ -177,7 +198,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
             onPressed: () => showLicensePage(
               context: context,
               applicationName: '고요 · TXT 리더',
-              applicationVersion: '1.1.1',
+              applicationVersion: '1.2.0',
             ),
           ),
         ],
@@ -195,7 +216,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
           NavigationDestination(
             icon: Icon(Icons.auto_stories_outlined),
             selectedIcon: Icon(Icons.auto_stories),
-            label: '서재',
+            label: '최근 이력',
           ),
           NavigationDestination(
             icon: Icon(Icons.folder_outlined),
@@ -220,7 +241,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                tab == 0 ? '나만의 서재' : '자주 읽는 폴더',
+                tab == 0 ? '최근 읽은 책' : '자주 읽는 폴더',
                 style: Theme.of(context).textTheme.headlineLarge,
               ),
               const SizedBox(height: 8),
@@ -230,7 +251,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                 controller: search,
                 onChanged: (_) => setState(() {}),
                 decoration: InputDecoration(
-                  labelText: tab == 0 ? '서재에서 책 제목 검색' : '즐겨찾기 폴더 검색',
+                  labelText: tab == 0 ? '최근 이력에서 책 제목 검색' : '즐겨찾기 폴더 검색',
                   prefixIcon: const Icon(Icons.search),
                   border: const OutlineInputBorder(),
                   suffixIcon: search.text.isEmpty
@@ -269,7 +290,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                   const SizedBox(height: 16),
                                   Text(
                                     query.isEmpty
-                                        ? '첫 번째 이야기를 추가해 보세요'
+                                        ? (widget.model.books.isEmpty
+                                              ? '첫 번째 이야기를 추가해 보세요'
+                                              : '최근 이력이 없습니다.')
                                         : '검색 결과가 없습니다.',
                                   ),
                                   if (query.isEmpty)
@@ -297,7 +320,13 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                         ? '읽던 곳부터 계속 읽기'
                                         : '새로운 이야기',
                                   ),
-                                  trailing: const Icon(Icons.chevron_right),
+                                  trailing: IconButton(
+                                    tooltip: '이력에서 지우기',
+                                    icon: const Icon(Icons.close),
+                                    onPressed: blocked
+                                        ? null
+                                        : () => hideBook(book),
+                                  ),
                                   onTap: blocked
                                       ? null
                                       : () => open(book: book),

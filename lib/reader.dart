@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'model.dart';
 import 'pagination.dart';
 import 'platform.dart';
+import 'page_jump_dialog.dart';
 
 class ReaderScreen extends StatefulWidget {
   final LibraryModel model;
@@ -111,6 +112,40 @@ class _ReaderScreenState extends State<ReaderScreen>
     widget.book.offset = session!.range.start;
     saveTimer?.cancel();
     saveTimer = Timer(const Duration(milliseconds: 250), widget.model.save);
+  }
+
+  Future<void> showPageJump() async {
+    final active = session;
+    if (paginating || active == null || menuOpen) return;
+    menuOpen = true;
+    final selection = await showDialog<PageJumpSelection>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => PageJumpDialog(
+        session: active,
+        isCurrent: () => mounted && !paginating && identical(active, session),
+      ),
+    );
+    menuOpen = false;
+    if (!mounted) return;
+    if (paginating || !identical(active, session)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('화면 크기가 바뀌었습니다. 페이지 이동을 다시 열어 주세요.')),
+      );
+      return;
+    }
+    if (selection == null) return;
+    active.seekOffset(selection.offset);
+    setState(() {});
+    widget.book.offset = active.range.start;
+    saveTimer?.cancel();
+    widget.model.save();
+    if (selection.actualPage != null &&
+        selection.actualPage != selection.requestedPage) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('마지막 페이지(${selection.actualPage}쪽)로 이동했습니다.')),
+      );
+    }
   }
 
   Future<void> showSettings() async {
@@ -250,7 +285,9 @@ class _ReaderScreenState extends State<ReaderScreen>
 
   @override
   Widget build(BuildContext context) => Scaffold(
+    resizeToAvoidBottomInset: false,
     body: SafeArea(
+      maintainBottomViewPadding: true,
       child: LayoutBuilder(
         builder: (context, constraints) {
           final size = Size(
@@ -331,6 +368,12 @@ class _ReaderScreenState extends State<ReaderScreen>
                             textAlign: TextAlign.center,
                             style: Theme.of(context).textTheme.labelSmall,
                           ),
+                        ),
+                        IconButton(
+                          tooltip: '페이지 이동',
+                          onPressed: paginating ? null : showPageJump,
+                          icon: const Icon(Icons.find_in_page_outlined),
+                          visualDensity: VisualDensity.compact,
                         ),
                         IconButton(
                           tooltip: '읽기 설정',

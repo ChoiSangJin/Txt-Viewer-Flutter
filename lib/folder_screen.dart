@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'folder_models.dart';
 import 'model.dart';
 import 'reader.dart';
+import 'confirmation.dart';
 
 class FolderScreen extends StatefulWidget {
   final LibraryModel model;
@@ -113,6 +114,62 @@ class _FolderScreenState extends State<FolderScreen> {
     }
   }
 
+  Future<void> authorizeDeletion() async {
+    if (opening) return;
+    setState(() => opening = true);
+    try {
+      if (await widget.model.platform.authorizeFolder(widget.folder.uri))
+        await refresh();
+    } catch (_) {
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('같은 폴더를 선택하고 쓰기 권한을 허용해 주세요. 저장소가 삭제를 지원해야 합니다.'),
+          ),
+        );
+    } finally {
+      if (mounted) setState(() => opening = false);
+    }
+  }
+
+  Future<void> deleteFile(FolderEntry entry) async {
+    if (opening || entry.isDirectory || !entry.canDelete) return;
+    final confirmed = await confirmAction(
+      context,
+      title: '원본 파일을 삭제할까요?',
+      message:
+          '${[widget.folder.name, ...trail.map((e) => e.name), entry.path].join('/')}\n\n기기의 원본 파일이 삭제되며 앱에서 되돌릴 수 없습니다. 최근 이력의 앱 사본과 읽던 위치는 유지됩니다.',
+      confirmLabel: '원본 파일 삭제',
+      destructive: true,
+    );
+    if (!mounted || !confirmed) return;
+    setState(() => opening = true);
+    var succeeded = false;
+    try {
+      await widget.model.platform.deleteDocument(
+        widget.folder.uri,
+        entry.uri,
+        entry.name,
+      );
+      succeeded = true;
+    } catch (_) {
+      // Refresh even after a provider error: its response may have been lost.
+    }
+    if (!mounted) return;
+    await refresh();
+    if (!mounted) return;
+    setState(() => opening = false);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          succeeded
+              ? '원본 파일을 삭제했습니다.'
+              : '삭제 완료를 확인하지 못했습니다. 파일 상태와 삭제 권한을 확인해 주세요.',
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final entries = [...listing.entries];
@@ -210,6 +267,26 @@ class _FolderScreenState extends State<FolderScreen> {
                     ),
                   ),
                 ),
+              if (!loading &&
+                  error == null &&
+                  entries.any(
+                    (entry) =>
+                        !entry.isDirectory &&
+                        entry.supportsDelete &&
+                        !entry.canDelete,
+                  ))
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Row(
+                    children: [
+                      const Expanded(child: Text('읽기 전용 파일이 있습니다.')),
+                      TextButton(
+                        onPressed: opening ? null : authorizeDeletion,
+                        child: const Text('삭제 권한 허용'),
+                      ),
+                    ],
+                  ),
+                ),
               if (!loading && error == null)
                 Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -255,11 +332,19 @@ class _FolderScreenState extends State<FolderScreen> {
                             subtitle: search.text.trim().isEmpty
                                 ? null
                                 : Text(entry.path),
-                            trailing: Icon(
-                              entry.isDirectory
-                                  ? Icons.chevron_right
-                                  : Icons.menu_book_outlined,
-                            ),
+                            trailing: entry.isDirectory
+                                ? const Icon(Icons.chevron_right)
+                                : IconButton(
+                                    tooltip: entry.canDelete
+                                        ? '원본 파일 삭제'
+                                        : entry.supportsDelete
+                                        ? '삭제하려면 폴더 쓰기 권한을 허용해 주세요'
+                                        : '이 저장소는 파일 삭제를 지원하지 않습니다',
+                                    onPressed: opening || !entry.canDelete
+                                        ? null
+                                        : () => deleteFile(entry),
+                                    icon: const Icon(Icons.delete_outline),
+                                  ),
                             onTap: opening
                                 ? null
                                 : () => entry.isDirectory

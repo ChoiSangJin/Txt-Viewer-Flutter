@@ -168,6 +168,9 @@ void main() {
       expect(find.text('소설'), findsOneWidget);
       await tester.tap(find.byTooltip('즐겨찾기 해제'));
       await tester.pumpAndSettle();
+      expect(model.folders, hasLength(1));
+      await tester.tap(find.widgetWithText(TextButton, '즐겨찾기 해제'));
+      await tester.pumpAndSettle();
       expect(model.folders, isEmpty);
       expect(model.books, hasLength(2));
       expect(platform.released, [favorite.uri]);

@@ -48,17 +48,26 @@ class Book {
   String name;
   final String? sourceUri;
   int offset;
-  Book(this.id, this.name, {this.offset = 0, this.sourceUri});
+  bool hidden;
+  Book(
+    this.id,
+    this.name, {
+    this.offset = 0,
+    this.sourceUri,
+    this.hidden = false,
+  });
   Map<String, dynamic> toJson() => {
     'id': id,
     'name': name,
     'offset': offset,
     'sourceUri': sourceUri,
+    'hidden': hidden,
   };
   Book.fromJson(Map<String, dynamic> json)
     : id = json['id'] as String,
       name = json['name'] as String,
       sourceUri = json['sourceUri'] as String?,
+      hidden = json['hidden'] as bool? ?? false,
       offset = (json['offset'] as int? ?? 0).clamp(0, 1 << 31);
 }
 
@@ -115,10 +124,22 @@ class LibraryModel extends ChangeNotifier {
         ? Book(id, imported['name'] as String, sourceUri: source)
         : matches.first;
     book.name = imported['name'] as String;
+    markOpened(book);
+    return book;
+  }
+
+  Iterable<Book> get recentBooks => books.where((book) => !book.hidden);
+
+  void markOpened(Book book) {
+    book.hidden = false;
     books.remove(book);
     books.insert(0, book);
     changed();
-    return book;
+  }
+
+  void hideBook(Book book) {
+    book.hidden = true;
+    changed();
   }
 
   bool addFolder(FavoriteFolder folder) {
