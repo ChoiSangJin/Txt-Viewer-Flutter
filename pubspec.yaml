@@ -1,0 +1,28 @@
+name: txt_viewer
+description: 오프라인 소설을 위한 Android TXT 리더
+publish_to: none
+version: 1.0.0+1
+environment:
+  sdk: '>=3.9.0 <4.0.0'
+dependencies:
+  flutter:
+    sdk: flutter
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/fonts/KoPub-LICENSE.txt
+    - assets/fonts/Pretendard-LICENSE.txt
+    - assets/fonts/RIDI-LICENSE.md
+  fonts:
+    - family: RIDIBatang
+      fonts:
+        - asset: assets/fonts/ridi.otf
+    - family: KoPubBatang
+      fonts:
+        - asset: assets/fonts/kopub.ttf
+    - family: Pretendard
+      fonts:
+        - asset: assets/fonts/pretendard.ttf

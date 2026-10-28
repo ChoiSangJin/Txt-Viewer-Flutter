@@ -1,0 +1,355 @@
+import 'dart:async';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'model.dart';
+import 'pagination.dart';
+import 'platform.dart';
+
+class ReaderScreen extends StatefulWidget {
+  final LibraryModel model;
+  final Book book;
+  final String text;
+  const ReaderScreen({
+    super.key,
+    required this.model,
+    required this.book,
+    required this.text,
+  });
+  @override
+  State<ReaderScreen> createState() => _ReaderScreenState();
+}
+
+class _ReaderScreenState extends State<ReaderScreen>
+    with WidgetsBindingObserver {
+  List<PageRange> pages = [];
+  int current = 0, generation = 0;
+  bool paginating = true, menuOpen = false;
+  String? layoutKey;
+  Timer? saveTimer;
+  double dragDistance = 0;
+  static final Map<String, Future<void>> loadedFonts = {};
+  ReadingSettings get settings => widget.model.settings;
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    widget.model.platform.setReading(true);
+    ReaderPlatform.channel.setMethodCallHandler((call) async {
+      if (call.method == 'volume' && !menuOpen)
+        turn(call.arguments == 'next' ? 1 : -1);
+    });
+    // Font metrics must be loaded before pagination, including the initial font.
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    } else {
+      widget.model.save();
+    }
+  }
+
+  @override
+  void dispose() {
+    generation++;
+    saveTimer?.cancel();
+    widget.model.save();
+    WidgetsBinding.instance.removeObserver(this);
+    ReaderPlatform.channel.setMethodCallHandler(null);
+    widget.model.platform.setReading(false);
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    super.dispose();
+  }
+
+  Future<void> paginate(Size size) async {
+    final token = ++generation;
+    final position = widget.book.offset;
+    final result = <PageRange>[];
+    final style = settings.style;
+    final spacing = settings.paragraphSpace;
+    // Explicitly load bundled fonts so initial metrics match the rendered page.
+    final font = settings.font;
+    final loader = FontLoader(font)
+      ..addFont(
+        rootBundle.load(switch (font) {
+          'KoPubBatang' => 'assets/fonts/kopub.ttf',
+          'Pretendard' => 'assets/fonts/pretendard.ttf',
+          _ => 'assets/fonts/ridi.otf',
+        }),
+      );
+    await loadedFonts.putIfAbsent(font, loader.load);
+    if (!mounted || token != generation) return;
+    var start = 0;
+    while (start < widget.text.length) {
+      final range = nextPage(widget.text, start, size, style, spacing);
+      result.add(range);
+      start = range.end;
+      if (result.length % 8 == 0) {
+        await Future<void>.delayed(Duration.zero);
+        if (!mounted || token != generation) return;
+      }
+    }
+    if (!mounted || token != generation) return;
+    if (result.isEmpty) result.add(const PageRange(0, 0));
+    final index = result.lastIndexWhere((p) => p.start <= position);
+    setState(() {
+      pages = result;
+      current = index.clamp(0, pages.length - 1);
+      paginating = false;
+    });
+  }
+
+  void turn(int direction) {
+    if (paginating || pages.isEmpty) return;
+    final next = (current + direction).clamp(0, pages.length - 1);
+    if (next == current) return;
+    setState(() => current = next);
+    widget.book.offset = pages[current].start;
+    saveTimer?.cancel();
+    saveTimer = Timer(const Duration(milliseconds: 250), widget.model.save);
+  }
+
+  Future<void> showSettings() async {
+    menuOpen = true;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => StatefulBuilder(
+        builder: (context, refresh) {
+          void change(VoidCallback action) {
+            action();
+            widget.model.changed();
+            refresh(() {});
+            setState(() {});
+          }
+
+          Widget slider(
+            String label,
+            double value,
+            double min,
+            double max,
+            ValueChanged<double> update,
+          ) => Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('$label  ${value.toStringAsFixed(1)}'),
+              Slider(
+                value: value,
+                min: min,
+                max: max,
+                label: value.toStringAsFixed(1),
+                onChanged: (v) => change(() => update(v)),
+              ),
+            ],
+          );
+          return SafeArea(
+            child: SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        const Expanded(
+                          child: Text('읽기 설정', style: TextStyle(fontSize: 22)),
+                        ),
+                        IconButton(
+                          tooltip: '설정 닫기',
+                          onPressed: () => Navigator.pop(context),
+                          icon: const Icon(Icons.close),
+                        ),
+                      ],
+                    ),
+                    const Text('좌우 탭 · 스와이프 · 볼륨 버튼으로 페이지 이동'),
+                    const SizedBox(height: 16),
+                    DropdownButtonFormField<String>(
+                      initialValue: settings.font,
+                      decoration: const InputDecoration(labelText: '글꼴'),
+                      items: const [
+                        DropdownMenuItem(
+                          value: 'RIDIBatang',
+                          child: Text('리디바탕'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'KoPubBatang',
+                          child: Text('KoPub 바탕'),
+                        ),
+                        DropdownMenuItem(
+                          value: 'Pretendard',
+                          child: Text('프리텐다드'),
+                        ),
+                      ],
+                      onChanged: (v) {
+                        if (v != null) change(() => settings.font = v);
+                      },
+                    ),
+                    const SizedBox(height: 16),
+                    slider(
+                      '글자 크기',
+                      settings.fontSize,
+                      14,
+                      36,
+                      (v) => settings.fontSize = v,
+                    ),
+                    slider(
+                      '줄 간격',
+                      settings.lineHeight,
+                      1.2,
+                      2.4,
+                      (v) => settings.lineHeight = v,
+                    ),
+                    slider(
+                      '문단 여백',
+                      settings.paragraphSpace,
+                      0,
+                      32,
+                      (v) => settings.paragraphSpace = v,
+                    ),
+                    Wrap(
+                      spacing: 8,
+                      children: [
+                        for (final theme in ReaderTheme.values)
+                          ChoiceChip(
+                            label: Text(switch (theme) {
+                              ReaderTheme.system => '시스템',
+                              ReaderTheme.light => '라이트',
+                              ReaderTheme.dark => '다크',
+                              ReaderTheme.black => 'AMOLED 블랙',
+                            }),
+                            selected: settings.theme == theme,
+                            onSelected: (_) =>
+                                change(() => settings.theme = theme),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    TextButton.icon(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        Navigator.of(this.context).pop();
+                      },
+                      icon: const Icon(Icons.library_books_outlined),
+                      label: const Text('서재로 돌아가기'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+    menuOpen = false;
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    body: SafeArea(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final size = Size(
+            (constraints.maxWidth - 48).clamp(1, double.infinity).toDouble(),
+            (constraints.maxHeight - 84).clamp(1, double.infinity).toDouble(),
+          );
+          final key =
+              '$size/${settings.font}/${settings.fontSize}/${settings.lineHeight}/${settings.paragraphSpace}';
+          if (key != layoutKey) {
+            layoutKey = key;
+            paginating = true;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) paginate(size);
+            });
+          }
+          return GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTapUp: (event) {
+              final fraction = event.localPosition.dx / constraints.maxWidth;
+              if (fraction < 0.3) {
+                turn(-1);
+              } else if (fraction > 0.7) {
+                turn(1);
+              } else {
+                showSettings();
+              }
+            },
+            onHorizontalDragStart: (_) => dragDistance = 0,
+            onHorizontalDragUpdate: (event) => dragDistance += event.delta.dx,
+            onHorizontalDragEnd: (event) {
+              final speed = event.primaryVelocity ?? 0;
+              if (dragDistance.abs() > 40 || speed.abs() > 100) {
+                final motion = dragDistance.abs() > 40 ? dragDistance : speed;
+                turn(motion < 0 ? 1 : -1);
+              }
+            },
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
+              child: Column(
+                children: [
+                  Expanded(
+                    child: paginating
+                        ? const Center(child: CircularProgressIndicator())
+                        : Align(
+                            alignment: Alignment.topLeft,
+                            child: Text.rich(
+                              readingSpan(
+                                widget.text.substring(
+                                  pages[current].start,
+                                  pages[current].end,
+                                ),
+                                settings.style,
+                                settings.paragraphSpace,
+                              ),
+                              textScaler: TextScaler.noScaling,
+                            ),
+                          ),
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    height: 40,
+                    child: Row(
+                      children: [
+                        IconButton(
+                          tooltip: '이전 페이지',
+                          onPressed: current > 0 ? () => turn(-1) : null,
+                          icon: const Icon(Icons.chevron_left),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        Expanded(
+                          child: Text(
+                            paginating
+                                ? '페이지 구성 중…'
+                                : '${current + 1} / ${pages.length}',
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context).textTheme.labelSmall,
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: '읽기 설정',
+                          onPressed: showSettings,
+                          icon: const Icon(Icons.tune),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                        IconButton(
+                          tooltip: '다음 페이지',
+                          onPressed: current + 1 < pages.length
+                              ? () => turn(1)
+                              : null,
+                          icon: const Icon(Icons.chevron_right),
+                          visualDensity: VisualDensity.compact,
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    ),
+  );
+}
