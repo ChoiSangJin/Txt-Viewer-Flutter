@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'pagination.dart';
+import 'page_count_summary.dart';
 
 class PageJumpSelection {
   final int offset;
@@ -77,115 +78,128 @@ class _PageJumpDialogState extends State<PageJumpDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
-    scrollable: true,
-    title: const Text('페이지 이동'),
-    content: SizedBox(
-      width: 340,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          const Text('진행률로 바로 이동'),
-          Slider(
-            value: percent.clamp(0, 100),
-            min: 0,
-            max: 100,
-            label: '${percent.toStringAsFixed(1)}%',
-            onChanged: busy
-                ? null
-                : (value) => setState(() {
-                    percent = value;
-                    validPercent = true;
-                    percentText.text = value.toStringAsFixed(1);
-                  }),
-          ),
-          TextField(
-            controller: percentText,
-            enabled: !busy,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: InputDecoration(
-              labelText: '이동할 위치 (%)',
-              border: const OutlineInputBorder(),
-              errorText: validPercent ? null : '0~100 사이의 값을 입력해 주세요.',
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: widget.session,
+    builder: (context, _) => AlertDialog(
+      scrollable: true,
+      title: const Text('페이지 이동'),
+      content: SizedBox(
+        width: 340,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            PageCountSummary(session: widget.session),
+            const SizedBox(height: 16),
+            const Text('진행률로 바로 이동'),
+            Slider(
+              value: percent.clamp(0, 100),
+              min: 0,
+              max: 100,
+              label: '${percent.toStringAsFixed(1)}%',
+              onChanged: busy
+                  ? null
+                  : (value) => setState(() {
+                      percent = value;
+                      validPercent = true;
+                      percentText.text = value.toStringAsFixed(1);
+                    }),
             ),
-            onChanged: (value) => setState(() {
-              final parsed = double.tryParse(value.replaceAll(',', '.'));
-              validPercent =
-                  parsed != null &&
-                  parsed.isFinite &&
-                  parsed >= 0 &&
-                  parsed <= 100;
-              if (validPercent) percent = parsed!;
-            }),
-          ),
-          const SizedBox(height: 8),
-          FilledButton(
-            onPressed: busy || !validPercent
-                ? null
-                : () => Navigator.pop(
-                    context,
-                    PageJumpSelection(
-                      (widget.session.text.length * percent / 100).floor(),
-                    ),
-                  ),
-            child: const Text('위치로 이동'),
-          ),
-          const Divider(height: 28),
-          const Text('쪽 번호로 이동'),
-          const SizedBox(height: 8),
-          TextField(
-            controller: pageText,
-            enabled: !busy,
-            keyboardType: TextInputType.number,
-            inputFormatters: [
-              FilteringTextInputFormatter.digitsOnly,
-              LengthLimitingTextInputFormatter(7),
-            ],
-            decoration: const InputDecoration(
-              labelText: '이동할 쪽 번호',
-              hintText: '예: 100',
-              border: OutlineInputBorder(),
-            ),
-            onSubmitted: busy ? null : (_) => locate(),
-          ),
-          const SizedBox(height: 8),
-          const Text('쪽 번호는 현재 글꼴과 화면 크기 기준입니다. 큰 번호는 계산 시간이 걸릴 수 있습니다.'),
-          if (busy)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 12),
-              child: Row(
-                children: [
-                  SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                  SizedBox(width: 12),
-                  Expanded(child: Text('쪽 번호 계산 중…')),
-                ],
+            TextField(
+              controller: percentText,
+              enabled: !busy,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
               ),
+              decoration: InputDecoration(
+                labelText: '이동할 위치 (%)',
+                border: const OutlineInputBorder(),
+                errorText: validPercent ? null : '0~100 사이의 값을 입력해 주세요.',
+              ),
+              onChanged: (value) => setState(() {
+                final parsed = double.tryParse(value.replaceAll(',', '.'));
+                validPercent =
+                    parsed != null &&
+                    parsed.isFinite &&
+                    parsed >= 0 &&
+                    parsed <= 100;
+                if (validPercent) percent = parsed!;
+              }),
             ),
-          if (error case final message?)
+            const SizedBox(height: 8),
             Text(
-              message,
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
+              '이동할 쪽: ${widget.session.pageNumberAt((widget.session.text.length * percent / 100).floor()) ?? '계산 중'} / ${widget.session.totalPages ?? '계산 중'}쪽',
+              key: const ValueKey('target-page-preview'),
             ),
-          OutlinedButton(
-            onPressed: busy ? null : locate,
-            child: const Text('쪽으로 이동'),
-          ),
-        ],
+            FilledButton(
+              onPressed: busy || !validPercent
+                  ? null
+                  : () => Navigator.pop(
+                      context,
+                      PageJumpSelection(
+                        (widget.session.text.length * percent / 100).floor(),
+                      ),
+                    ),
+              child: const Text('위치로 이동'),
+            ),
+            const Divider(height: 28),
+            const Text('쪽 번호로 이동'),
+            const SizedBox(height: 8),
+            TextField(
+              controller: pageText,
+              enabled: !busy,
+              keyboardType: TextInputType.number,
+              inputFormatters: [
+                FilteringTextInputFormatter.digitsOnly,
+                LengthLimitingTextInputFormatter(7),
+              ],
+              decoration: InputDecoration(
+                labelText: widget.session.totalPages == null
+                    ? '이동할 쪽 번호'
+                    : '이동할 쪽 번호 (1~${widget.session.totalPages})',
+                hintText: '예: 100',
+                border: OutlineInputBorder(),
+              ),
+              onSubmitted: busy ? null : (_) => locate(),
+            ),
+            const SizedBox(height: 8),
+            const Text('쪽 번호는 현재 글꼴과 화면 크기 기준입니다. 큰 번호는 계산 시간이 걸릴 수 있습니다.'),
+            if (busy)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 12),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                    SizedBox(width: 12),
+                    Expanded(child: Text('쪽 번호 계산 중…')),
+                  ],
+                ),
+              ),
+            if (error case final message?)
+              Text(
+                message,
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            OutlinedButton(
+              onPressed: busy ? null : locate,
+              child: const Text('쪽으로 이동'),
+            ),
+          ],
+        ),
       ),
+      actions: [
+        TextButton(
+          onPressed: () {
+            cancelled = true;
+            Navigator.pop(context);
+          },
+          child: const Text('취소'),
+        ),
+      ],
     ),
-    actions: [
-      TextButton(
-        onPressed: () {
-          cancelled = true;
-          Navigator.pop(context);
-        },
-        child: const Text('취소'),
-      ),
-    ],
   );
 }

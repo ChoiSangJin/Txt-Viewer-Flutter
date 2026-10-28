@@ -5,6 +5,7 @@ import 'model.dart';
 import 'pagination.dart';
 import 'platform.dart';
 import 'page_jump_dialog.dart';
+import 'page_count_summary.dart';
 
 class ReaderScreen extends StatefulWidget {
   final LibraryModel model;
@@ -56,6 +57,7 @@ class _ReaderScreenState extends State<ReaderScreen>
   @override
   void dispose() {
     generation++;
+    session?.dispose();
     saveTimer?.cancel();
     widget.model.save();
     WidgetsBinding.instance.removeObserver(this);
@@ -96,13 +98,54 @@ class _ReaderScreenState extends State<ReaderScreen>
       style: style,
       spacing: spacing,
     );
+    session?.dispose();
     setState(() {
       session = next;
       paginating = false;
     });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && token == generation && identical(session, next))
+        preparePageIndex(next, token);
+    });
     if (widget.book.offset != next.range.start) {
       widget.book.offset = next.range.start;
       widget.model.save();
+    }
+  }
+
+  Future<void> preparePageIndex(PageSession active, int token) async {
+    bool valid() =>
+        mounted && token == generation && identical(session, active);
+    final layout =
+        'goyo-pages-v1/flutter-3.35.7/${active.size.width}/${active.size.height}/'
+        '${active.style.fontFamily}/${active.style.fontSize}/${active.style.height}/${active.spacing}/${active.style.letterSpacing}';
+    Map<String, dynamic>? cache;
+    try {
+      cache = await widget.model.platform.loadPageIndex(widget.book.id, layout);
+    } catch (_) {
+      /* Optional cache miss. */
+    }
+    if (!valid()) return;
+    final raw = cache?['ends'];
+    if (raw is List &&
+        raw.every((value) => value is int) &&
+        active.restorePageEnds(raw.cast<int>()))
+      return;
+    await active.countAll();
+    if (!valid() ||
+        !active.indexComplete ||
+        active.totalPages! > 200000 ||
+        cache?['token'] is! String)
+      return;
+    try {
+      await widget.model.platform.savePageIndex(
+        widget.book.id,
+        layout,
+        cache!['token'] as String,
+        active.pageEnds,
+      );
+    } catch (_) {
+      /* The book remains readable without a disk cache. */
     }
   }
 
@@ -295,9 +338,11 @@ class _ReaderScreenState extends State<ReaderScreen>
             (constraints.maxHeight - 84).clamp(1, double.infinity).toDouble(),
           );
           final key =
-              '$size/${settings.font}/${settings.fontSize}/${settings.lineHeight}/${settings.paragraphSpace}';
+              '${size.width}/${size.height}/${settings.font}/${settings.fontSize}/${settings.lineHeight}/${settings.paragraphSpace}';
           if (key != layoutKey) {
             layoutKey = key;
+            session?.dispose();
+            session = null;
             paginating = true;
             final token = ++generation;
             WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -350,46 +395,52 @@ class _ReaderScreenState extends State<ReaderScreen>
                   const SizedBox(height: 12),
                   SizedBox(
                     height: 40,
-                    child: Row(
-                      children: [
-                        IconButton(
-                          tooltip: '이전 페이지',
-                          onPressed: !paginating && session?.canPrevious == true
-                              ? () => turn(-1)
-                              : null,
-                          icon: const Icon(Icons.chevron_left),
-                          visualDensity: VisualDensity.compact,
-                        ),
-                        Expanded(
-                          child: Text(
-                            paginating
-                                ? '페이지 구성 중…'
-                                : '${(session!.progress * 100).toStringAsFixed(1)}%',
-                            textAlign: TextAlign.center,
-                            style: Theme.of(context).textTheme.labelSmall,
+                    child: ListenableBuilder(
+                      listenable: Listenable.merge([session]),
+                      builder: (context, _) => Row(
+                        children: [
+                          IconButton(
+                            tooltip: '이전 페이지',
+                            onPressed:
+                                !paginating && session?.canPrevious == true
+                                ? () => turn(-1)
+                                : null,
+                            icon: const Icon(Icons.chevron_left),
+                            visualDensity: VisualDensity.compact,
                           ),
-                        ),
-                        IconButton(
-                          tooltip: '페이지 이동',
-                          onPressed: paginating ? null : showPageJump,
-                          icon: const Icon(Icons.find_in_page_outlined),
-                          visualDensity: VisualDensity.compact,
-                        ),
-                        IconButton(
-                          tooltip: '읽기 설정',
-                          onPressed: showSettings,
-                          icon: const Icon(Icons.tune),
-                          visualDensity: VisualDensity.compact,
-                        ),
-                        IconButton(
-                          tooltip: '다음 페이지',
-                          onPressed: !paginating && session?.canNext == true
-                              ? () => turn(1)
-                              : null,
-                          icon: const Icon(Icons.chevron_right),
-                          visualDensity: VisualDensity.compact,
-                        ),
-                      ],
+                          Expanded(
+                            child: paginating
+                                ? const Text(
+                                    '페이지 구성 중…',
+                                    textAlign: TextAlign.center,
+                                  )
+                                : PageCountSummary(
+                                    session: session!,
+                                    compact: true,
+                                  ),
+                          ),
+                          IconButton(
+                            tooltip: '페이지 이동',
+                            onPressed: paginating ? null : showPageJump,
+                            icon: const Icon(Icons.find_in_page_outlined),
+                            visualDensity: VisualDensity.compact,
+                          ),
+                          IconButton(
+                            tooltip: '읽기 설정',
+                            onPressed: showSettings,
+                            icon: const Icon(Icons.tune),
+                            visualDensity: VisualDensity.compact,
+                          ),
+                          IconButton(
+                            tooltip: '다음 페이지',
+                            onPressed: !paginating && session?.canNext == true
+                                ? () => turn(1)
+                                : null,
+                            icon: const Icon(Icons.chevron_right),
+                            visualDensity: VisualDensity.compact,
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ],
