@@ -27,7 +27,8 @@ jobs:
         with:
           flutter-version: '3.35.7'
           cache: true
-      - run: flutter pub get
+      - run: flutter pub get --enforce-lockfile
+      - run: dart format --output=none --set-exit-if-changed lib test
       - run: flutter analyze
       - run: flutter test
       - run: flutter build apk --debug --target-platform android-arm64
@@ -53,7 +54,7 @@ jobs:
         with:
           flutter-version: '3.35.7'
           cache: true
-      - run: flutter pub get
+      - run: flutter pub get --enforce-lockfile
       - name: Build signed ARM64 APK
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}

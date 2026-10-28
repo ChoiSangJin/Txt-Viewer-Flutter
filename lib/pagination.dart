@@ -3,14 +3,21 @@ import 'package:flutter/material.dart';
 /// The same spans and constraints are used for measuring and rendering pages.
 TextSpan readingSpan(String text, TextStyle style, double paragraphSpace) {
   final parts = text.split('\n');
-  return TextSpan(style: style, children: [
-    for (var i = 0; i < parts.length; i++) ...[
-      TextSpan(text: parts[i]),
-      if (i < parts.length - 1)
-        TextSpan(text: '\n', style: TextStyle(
-          height: style.height! + paragraphSpace / style.fontSize!)),
+  return TextSpan(
+    style: style,
+    children: [
+      for (var i = 0; i < parts.length; i++) ...[
+        TextSpan(text: parts[i]),
+        if (i < parts.length - 1)
+          TextSpan(
+            text: '\n',
+            style: TextStyle(
+              height: style.height! + paragraphSpace / style.fontSize!,
+            ),
+          ),
+      ],
     ],
-  ]);
+  );
 }
 
 class PageRange {
@@ -18,21 +25,39 @@ class PageRange {
   const PageRange(this.start, this.end);
 }
 
-bool _betweenSurrogates(String text, int index) => index > 0 && index < text.length &&
-  text.codeUnitAt(index - 1) >= 0xD800 && text.codeUnitAt(index - 1) <= 0xDBFF &&
-  text.codeUnitAt(index) >= 0xDC00 && text.codeUnitAt(index) <= 0xDFFF;
+bool _betweenSurrogates(String text, int index) =>
+    index > 0 &&
+    index < text.length &&
+    text.codeUnitAt(index - 1) >= 0xD800 &&
+    text.codeUnitAt(index - 1) <= 0xDBFF &&
+    text.codeUnitAt(index) >= 0xDC00 &&
+    text.codeUnitAt(index) <= 0xDFFF;
 
-PageRange nextPage(String text, int start, Size size, TextStyle style, double spacing) {
-  final painter = TextPainter(textDirection: TextDirection.ltr, textScaler: TextScaler.noScaling);
+PageRange nextPage(
+  String text,
+  int start,
+  Size size,
+  TextStyle style,
+  double spacing,
+) {
+  final painter = TextPainter(
+    textDirection: TextDirection.ltr,
+    textScaler: TextScaler.noScaling,
+  );
   bool fits(int end) {
     painter.text = readingSpan(text.substring(start, end), style, spacing);
     painter.layout(maxWidth: size.width);
     return painter.height <= size.height;
   }
+
   var low = start, high = (start + 12000).clamp(0, text.length);
   while (low < high) {
     final middle = (low + high + 1) ~/ 2;
-    if (fits(middle)) { low = middle; } else { high = middle - 1; }
+    if (fits(middle)) {
+      low = middle;
+    } else {
+      high = middle - 1;
+    }
   }
   var end = low;
   // Never split UTF-16 pairs. A normal reader viewport always fits a glyph.
