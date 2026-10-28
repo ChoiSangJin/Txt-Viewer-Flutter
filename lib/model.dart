@@ -149,6 +149,18 @@ class LibraryModel extends ChangeNotifier {
     return true;
   }
 
+  void setFolderSort(String uri, bool newestFirst) {
+    final index = folders.indexWhere((folder) => folder.uri == uri);
+    if (index < 0 || folders[index].newestFirst == newestFirst) return;
+    final folder = folders[index];
+    folders[index] = FavoriteFolder(
+      uri: folder.uri,
+      name: folder.name,
+      newestFirst: newestFirst,
+    );
+    changed();
+  }
+
   Future<void> removeFolder(FavoriteFolder folder) async {
     await platform.releaseFolder(folder.uri);
     folders.removeWhere((value) => value.uri == folder.uri);

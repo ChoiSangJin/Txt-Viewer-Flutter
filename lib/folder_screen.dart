@@ -19,11 +19,13 @@ class _FolderScreenState extends State<FolderScreen> {
   FolderListing listing = const FolderListing([]);
   Timer? debounce;
   int generation = 0;
-  bool loading = true, opening = false, newestFirst = false;
+  bool loading = true, opening = false;
+  late bool newestFirst;
   String? error;
   @override
   void initState() {
     super.initState();
+    newestFirst = widget.folder.newestFirst;
     refresh();
   }
 
@@ -207,7 +209,10 @@ class _FolderScreenState extends State<FolderScreen> {
             PopupMenuButton<bool>(
               tooltip: '정렬',
               initialValue: newestFirst,
-              onSelected: (value) => setState(() => newestFirst = value),
+              onSelected: (value) {
+                setState(() => newestFirst = value);
+                widget.model.setFolderSort(widget.folder.uri, value);
+              },
               itemBuilder: (_) => const [
                 PopupMenuItem(value: false, child: Text('이름순')),
                 PopupMenuItem(value: true, child: Text('최근 수정순')),

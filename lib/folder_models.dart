@@ -1,9 +1,21 @@
 class FavoriteFolder {
   final String uri, name;
-  const FavoriteFolder({required this.uri, required this.name});
-  factory FavoriteFolder.fromJson(Map<String, dynamic> json) =>
-      FavoriteFolder(uri: json['uri'] as String, name: json['name'] as String);
-  Map<String, dynamic> toJson() => {'uri': uri, 'name': name};
+  final bool newestFirst;
+  const FavoriteFolder({
+    required this.uri,
+    required this.name,
+    this.newestFirst = false,
+  });
+  factory FavoriteFolder.fromJson(Map<String, dynamic> json) => FavoriteFolder(
+    uri: json['uri'] as String,
+    name: json['name'] as String,
+    newestFirst: json['newestFirst'] == true,
+  );
+  Map<String, dynamic> toJson() => {
+    'uri': uri,
+    'name': name,
+    'newestFirst': newestFirst,
+  };
 }
 
 class FolderEntry {

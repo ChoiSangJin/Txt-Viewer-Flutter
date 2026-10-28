@@ -177,6 +177,144 @@ void main() {
     },
   );
 
+  test(
+    'folder sort defaults safely and persists independently for each favorite',
+    () async {
+      final platform = FolderPlatform();
+      final legacy = FavoriteFolder.fromJson({
+        'uri': favorite.uri,
+        'name': favorite.name,
+      });
+      expect(legacy.newestFirst, isFalse);
+      expect(
+        FavoriteFolder.fromJson({
+          'uri': favorite.uri,
+          'name': favorite.name,
+          'newestFirst': 'invalid',
+        }).newestFirst,
+        isFalse,
+      );
+      final model = LibraryModel(platform);
+      model.addFolder(legacy);
+      model.addFolder(
+        const FavoriteFolder(uri: 'content://other/tree/books', name: '다른 폴더'),
+      );
+      model.setFolderSort(favorite.uri, true);
+      await model.save();
+      final restored = LibraryModel(platform);
+      await restored.load();
+      expect(restored.folders.first.newestFirst, isTrue);
+      expect(restored.folders.last.newestFirst, isFalse);
+      restored.setFolderSort(favorite.uri, false);
+      await restored.save();
+      final reopened = LibraryModel(platform);
+      await reopened.load();
+      expect(reopened.folders.first.newestFirst, isFalse);
+    },
+  );
+
+  testWidgets(
+    'newest sort survives navigation, search and an application restart',
+    (tester) async {
+      const old = FolderEntry(
+        uri: 'content://old',
+        name: '가.txt',
+        path: '가.txt',
+        isDirectory: false,
+        modified: 100,
+      );
+      const recent = FolderEntry(
+        uri: 'content://new',
+        name: '나.txt',
+        path: '나.txt',
+        isDirectory: false,
+        modified: 200,
+      );
+      final platform = FolderPlatform()
+        ..resolve = (parent, query) async => FolderListing([
+          if (parent == null && query.isEmpty) subfolder,
+          old,
+          recent,
+        ]);
+      final model = LibraryModel(platform)..addFolder(favorite);
+      Future<void> openFavorite() async {
+        await tester.tap(find.text('즐겨찾기 폴더'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('소설'));
+        await tester.pumpAndSettle();
+      }
+
+      Future<void> selectSort(String label) async {
+        await tester.tap(find.byTooltip('정렬'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(label));
+        await tester.pumpAndSettle();
+      }
+
+      Finder tile(String name) => find.byWidgetPredicate(
+        (widget) =>
+            widget is ListTile &&
+            widget.title is Text &&
+            (widget.title as Text).data == name,
+      );
+      void expectNewest() {
+        expect(
+          tester.getTopLeft(tile('나.txt')).dy,
+          lessThan(tester.getTopLeft(tile('가.txt')).dy),
+        );
+        expect(
+          tester
+              .widget<PopupMenuButton<bool>>(find.byType(PopupMenuButton<bool>))
+              .initialValue,
+          isTrue,
+        );
+      }
+
+      await tester.pumpWidget(ReaderApp(model: model));
+      await openFavorite();
+      await selectSort('최근 수정순');
+      expectNewest();
+      // Directories still precede files.
+      expect(
+        tester.getTopLeft(find.text('시리즈')).dy,
+        lessThan(tester.getTopLeft(tile('나.txt')).dy),
+      );
+      await tester.tap(find.text('시리즈'));
+      await tester.pumpAndSettle();
+      expectNewest();
+      await tester.tap(find.byType(BackButton));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'txt');
+      await tester.pump(const Duration(milliseconds: 310));
+      await tester.pumpAndSettle();
+      expectNewest();
+      await tester.tap(find.byType(BackButton));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('소설'));
+      await tester.pumpAndSettle();
+      expectNewest();
+      await model.save();
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+      final restored = LibraryModel(platform);
+      await restored.load();
+      await tester.pumpWidget(ReaderApp(model: restored));
+      await openFavorite();
+      expectNewest();
+      await selectSort('이름순');
+      expect(
+        tester.getTopLeft(tile('가.txt')).dy,
+        lessThan(tester.getTopLeft(tile('나.txt')).dy),
+      );
+      await restored.save();
+      final again = LibraryModel(platform);
+      await again.load();
+      expect(again.folders.single.newestFirst, isFalse);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+    },
+  );
+
   testWidgets('browse a child directory and return to root', (tester) async {
     final platform = FolderPlatform();
     await showFolder(tester, platform);
