@@ -84,6 +84,20 @@ class MainActivity : FlutterActivity() {
                 "importDocument" -> background(result) {
                     importDocument(Uri.parse(call.arguments as String))
                 }
+                "loadPageIndex" -> background(result) {
+                    val args = call.arguments as Map<*, *>
+                    PageIndexStore(File(filesDir, "books"), File(cacheDir, "page-index")).load(
+                        args["bookId"] as String, pageLayout(args["layout"] as String))
+                }
+                "savePageIndex" -> background(result) {
+                    val args = call.arguments as Map<*, *>
+                    val raw = args["ends"] as List<*>
+                    require(raw.size <= 200000)
+                    PageIndexStore(File(filesDir, "books"), File(cacheDir, "page-index")).save(
+                        args["bookId"] as String, pageLayout(args["layout"] as String), args["token"] as String,
+                        raw.map { (it as Number).toInt() }.toIntArray())
+                    null
+                }
                 "readBook" -> background(result) {
                     val id = call.arguments as String
                     require(id.matches(Regex("[a-f0-9-]{36}"))) { "잘못된 파일 ID" }
@@ -107,6 +121,10 @@ class MainActivity : FlutterActivity() {
             }
         }
     }
+
+    @Suppress("DEPRECATION")
+    private fun pageLayout(layout: String): String =
+        "app-${packageManager.getPackageInfo(packageName, 0).versionCode}/$layout"
 
     private fun pickFolder(result: MethodChannel.Result, expected: String?) {
         if (pendingPick != null) { result.error("BUSY", "선택기가 이미 열려 있습니다.", null); return }

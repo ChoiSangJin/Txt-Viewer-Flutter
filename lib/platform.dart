@@ -45,6 +45,23 @@ class ReaderPlatform {
   Future<Map<String, dynamic>> importDocument(String uri) async =>
       (await channel.invokeMapMethod<String, dynamic>('importDocument', uri))!;
 
+  Future<Map<String, dynamic>?> loadPageIndex(String bookId, String layout) =>
+      channel.invokeMapMethod<String, dynamic>('loadPageIndex', {
+        'bookId': bookId,
+        'layout': layout,
+      });
+  Future<void> savePageIndex(
+    String bookId,
+    String layout,
+    String token,
+    List<int> ends,
+  ) => channel.invokeMethod('savePageIndex', {
+    'bookId': bookId,
+    'layout': layout,
+    'token': token,
+    'ends': ends,
+  });
+
   Future<String> readBook(String id) async =>
       (await channel.invokeMethod<String>('readBook', id))!;
   Future<String?> loadState() => channel.invokeMethod<String>('loadState');

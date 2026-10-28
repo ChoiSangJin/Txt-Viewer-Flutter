@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 
 /// The same spans and constraints are used for measuring and rendering pages.
@@ -49,7 +50,8 @@ PageRange nextPage(
     textScaler: TextScaler.noScaling,
   );
   bool fits(int end) {
-    painter.text = readingSpan(text.substring(start, end), style, spacing);
+    final safeEnd = _betweenSurrogates(text, end) ? end - 1 : end;
+    painter.text = readingSpan(text.substring(start, safeEnd), style, spacing);
     painter.layout(maxWidth: size.width);
     return painter.height <= size.height;
   }
@@ -109,7 +111,8 @@ PageRange previousPage(
     textScaler: TextScaler.noScaling,
   );
   bool fits(int start) {
-    painter.text = readingSpan(text.substring(start, end), style, spacing);
+    final safeStart = _betweenSurrogates(text, start) ? start + 1 : start;
+    painter.text = readingSpan(text.substring(safeStart, end), style, spacing);
     painter.layout(maxWidth: size.width);
     return painter.height <= size.height;
   }
@@ -152,16 +155,21 @@ PageRange previousPage(
   }
 }
 
-/// Keeps only pages actually visited. Construction never indexes the whole book,
-/// including when resuming near its end or reflowing after a setting change.
-class PageSession {
+/// Opens a single page immediately. The canonical page index can be completed
+/// cooperatively after first paint, or restored from a validated layout cache.
+class PageSession extends ChangeNotifier {
   final String text;
   final Size size;
   final TextStyle style;
   final double spacing;
   final List<PageRange> _pages = [];
-  final List<PageRange> _numbered = [];
+  List<int> _ends = [];
   int _current = 0;
+  bool _closed = false;
+  bool indexFailed = false;
+  Timer? _indexTimer;
+  Completer<void>? _indexWait;
+  Future<void>? _counting;
   PageSession({
     required this.text,
     required this.size,
@@ -171,6 +179,38 @@ class PageSession {
   }) {
     seekOffset(offset);
   }
+
+  bool get indexComplete => _ends.isNotEmpty && _ends.last >= text.length;
+  int? get totalPages => indexComplete ? _ends.length : null;
+  int get indexedPages => _ends.length;
+  double get indexProgress => text.isEmpty
+      ? (indexComplete ? 1 : 0)
+      : (_ends.isEmpty ? 0 : _ends.last / text.length);
+  List<int> get pageEnds => List<int>.unmodifiable(_ends);
+  PageRange _pageAt(int i) => PageRange(i == 0 ? 0 : _ends[i - 1], _ends[i]);
+
+  int? _containingIndex(int offset) {
+    if (_ends.isEmpty || (offset >= _ends.last && !indexComplete)) return null;
+    var low = 0, high = _ends.length - 1;
+    while (low < high) {
+      final middle = (low + high) ~/ 2;
+      if (_ends[middle] <= offset) {
+        low = middle + 1;
+      } else {
+        high = middle;
+      }
+    }
+    return low;
+  }
+
+  int? pageNumberAt(int offset) {
+    final position = offset.clamp(0, text.length);
+    if (position == 0) return 1;
+    final index = _containingIndex(position);
+    return index == null ? null : index + 1;
+  }
+
+  int? get currentPage => pageNumberAt(range.start);
 
   void seekOffset(int offset) {
     var anchor = offset.clamp(0, text.length);
@@ -184,13 +224,14 @@ class PageSession {
           : (_knownPage(anchor) ??
                 nextPage(text, anchor, size, style, spacing)),
     );
+    if (_ends.isEmpty && range.start == 0) _ends.add(range.end);
   }
 
   PageRange? _knownPage(int boundary, {bool endingAt = false}) {
-    var low = 0, high = _numbered.length - 1;
+    var low = 0, high = _ends.length - 1;
     while (low <= high) {
       final middle = (low + high) ~/ 2;
-      final page = _numbered[middle];
+      final page = _pageAt(middle);
       final value = endingAt ? page.end : page.start;
       if (value == boundary) return page;
       if (value < boundary) {
@@ -202,6 +243,86 @@ class PageSession {
     return null;
   }
 
+  bool restorePageEnds(List<int> values) {
+    if (_closed ||
+        values.isEmpty ||
+        values.length > 200000 ||
+        values.last != text.length)
+      return false;
+    var previous = 0;
+    for (final end in values) {
+      if (end < 0 ||
+          end > text.length ||
+          (end <= previous &&
+              !(text.isEmpty && values.length == 1 && end == 0)))
+        return false;
+      if (_betweenSurrogates(text, end)) return false;
+      previous = end;
+    }
+    _ends = List<int>.of(values);
+    indexFailed = false;
+    notifyListeners();
+    return true;
+  }
+
+  void _appendPage() {
+    if (indexComplete) return;
+    _ends.add(
+      nextPage(text, _ends.isEmpty ? 0 : _ends.last, size, style, spacing).end,
+    );
+  }
+
+  Future<void> _pause(Duration duration) {
+    final waiter = Completer<void>();
+    _indexWait = waiter;
+    _indexTimer = Timer(duration, () {
+      _indexTimer = null;
+      _indexWait = null;
+      waiter.complete();
+    });
+    return waiter.future;
+  }
+
+  Future<void> countAll({Duration pause = const Duration(milliseconds: 8)}) {
+    if (_closed) return Future<void>.value();
+    if (indexFailed) _counting = null;
+    return _counting ??= _countAll(pause);
+  }
+
+  Future<void> _countAll(Duration pause) async {
+    indexFailed = false;
+    final announcements = Stopwatch()..start();
+    var lastCurrent = currentPage;
+    try {
+      while (!_closed && !indexComplete) {
+        final budget = Stopwatch()..start();
+        var batch = 0;
+        do {
+          _appendPage();
+          batch++;
+        } while (!_closed &&
+            !indexComplete &&
+            batch < 4 &&
+            budget.elapsedMilliseconds < 6);
+        if (_closed) return;
+        final now = currentPage;
+        if (indexComplete ||
+            now != lastCurrent ||
+            announcements.elapsedMilliseconds >= 80) {
+          notifyListeners();
+          announcements.reset();
+          lastCurrent = now;
+        }
+        if (!indexComplete) await _pause(pause);
+      }
+    } catch (_) {
+      if (!_closed) {
+        indexFailed = true;
+        notifyListeners();
+      }
+    }
+  }
+
   Future<PageLocation?> locatePage(
     int number, {
     bool Function()? cancelled,
@@ -209,58 +330,67 @@ class PageSession {
     if (number < 1) throw ArgumentError.value(number, 'number');
     var batch = 0;
     final budget = Stopwatch()..start();
-    while (_numbered.length < number) {
-      if (cancelled?.call() == true) return null;
-      if (_numbered.isNotEmpty && _numbered.last.end >= text.length) break;
-      _numbered.add(
-        nextPage(
-          text,
-          _numbered.isEmpty ? 0 : _numbered.last.end,
-          size,
-          style,
-          spacing,
-        ),
-      );
+    while (_ends.length < number) {
+      if (_closed || cancelled?.call() == true) return null;
+      if (indexComplete) break;
+      _appendPage();
       if (++batch >= 4 || budget.elapsedMilliseconds >= 8) {
+        notifyListeners();
         await Future<void>.delayed(Duration.zero);
         batch = 0;
         budget.reset();
       }
     }
-    if (cancelled?.call() == true) return null;
-    final actual = number.clamp(1, _numbered.length);
-    return PageLocation(actual, _numbered[actual - 1]);
+    if (_closed || cancelled?.call() == true) return null;
+    notifyListeners();
+    final actual = number.clamp(1, _ends.length);
+    return PageLocation(actual, _pageAt(actual - 1));
   }
 
   PageRange get range => _pages[_current];
   int get cachedPageCount => _pages.length;
   bool get canPrevious => range.start > 0;
-  bool get canNext => range.end < text.length;
+  bool get canNext =>
+      indexComplete ? currentPage! < totalPages! : range.end < text.length;
   double get progress => text.isEmpty ? 0 : range.end / text.length;
   bool move(int direction) {
-    if (direction == 0) return false;
+    if (direction == 0 || _closed) return false;
     if (direction > 0) {
       if (!canNext) return false;
       if (_current + 1 == _pages.length) {
-        _pages.add(
-          _knownPage(range.end) ??
-              nextPage(text, range.end, size, style, spacing),
-        );
+        final next = indexComplete
+            ? _pageAt(_containingIndex(range.start)! + 1)
+            : (_knownPage(range.end) ??
+                  nextPage(text, range.end, size, style, spacing));
+        _pages.add(next);
       }
       _current++;
     } else {
       if (!canPrevious) return false;
       if (_current == 0) {
-        _pages.insert(
-          0,
-          _knownPage(range.start, endingAt: true) ??
-              previousPage(text, range.start, size, style, spacing),
-        );
+        final before = indexComplete
+            ? _pageAt(
+                (_containingIndex(range.start)! - 1).clamp(0, _ends.length - 1),
+              )
+            : (_knownPage(range.start, endingAt: true) ??
+                  previousPage(text, range.start, size, style, spacing));
+        _pages.insert(0, before);
       } else {
         _current--;
       }
     }
     return true;
+  }
+
+  @override
+  void dispose() {
+    _closed = true;
+    _indexTimer?.cancel();
+    _indexTimer = null;
+    final waiter = _indexWait;
+    _indexWait = null;
+    if (waiter != null && !waiter.isCompleted) waiter.complete();
+    super.dispose();
   }
 }
 
