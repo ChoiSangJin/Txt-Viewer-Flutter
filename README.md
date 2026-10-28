@@ -24,8 +24,7 @@ Flutter **3.35.7** (Dart 3.9), JDK 17, Android SDK가 필요합니다.
 ```sh
 flutter --version
 flutter doctor -v
-flutter pub get
-# 첫 의존성 해석 후 생성되는 pubspec.lock을 커밋하세요.
+flutter pub get --enforce-lockfile
 dart format lib test
 flutter analyze
 flutter test
@@ -112,10 +111,9 @@ GitHub Release 배포이며 Google Play 업로드는 포함하지 않습니다.
 ## 이번 작업의 검증 상태
 
 - Kotlin의 실제 `TextDecoder` 대상 JUnit 테스트: **8개 통과**.
-- Dart 파일의 tree-sitter 문법 파싱, 폰트 파일 검증과 Android XML 파싱: 통과.
-- Flutter SDK의 Dart 바이너리 다운로드가 환경 네트워크 정책에서 차단되어
-  `flutter analyze`, Flutter 테스트, Android APK 빌드는 **미실행**.
-- 실제 기기 검증과 서명된 APK 배포는 **미완료**.
-
-문법 파싱은 Flutter 분석/컴파일이나 위젯 테스트를 대신하지 않습니다.
-GitHub Actions도 실제 실행 결과를 확인하기 전까지 통과한 것으로 간주하지 않습니다.
+- `flutter analyze`: **문제 없음**.
+- `flutter test`: **5개 통과** (페이지 내용·높이 보존, 설정·읽기 위치 복원, 가져오기·페이지 이동·테마 UI).
+- 폰트 파일의 한글·영문 글리프 및 Android XML 파싱: 통과.
+- Android ARM64 디버그 APK 빌드: **통과**.
+- Gradle의 실제 `TextDecoder` 단위 테스트: **8개 통과, 실패·스킵 없음**.
+- 실제 ARM64 기기의 하드웨어 버튼 및 시스템 UI 검증은 별도로 필요합니다.
