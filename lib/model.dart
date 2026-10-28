@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'platform.dart';
+import 'folder_models.dart';
 
 enum ReaderTheme { system, light, dark, black }
 
@@ -43,13 +44,21 @@ class ReadingSettings {
 }
 
 class Book {
-  final String id, name;
+  final String id;
+  String name;
+  final String? sourceUri;
   int offset;
-  Book(this.id, this.name, {this.offset = 0});
-  Map<String, dynamic> toJson() => {'id': id, 'name': name, 'offset': offset};
+  Book(this.id, this.name, {this.offset = 0, this.sourceUri});
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'offset': offset,
+    'sourceUri': sourceUri,
+  };
   Book.fromJson(Map<String, dynamic> json)
     : id = json['id'] as String,
       name = json['name'] as String,
+      sourceUri = json['sourceUri'] as String?,
       offset = (json['offset'] as int? ?? 0).clamp(0, 1 << 31);
 }
 
@@ -57,6 +66,7 @@ class LibraryModel extends ChangeNotifier {
   final ReaderPlatform platform;
   ReadingSettings settings = ReadingSettings();
   final List<Book> books = [];
+  final List<FavoriteFolder> folders = [];
   Future<void> _writes = Future.value();
   String? persistenceError;
   LibraryModel(this.platform);
@@ -66,6 +76,12 @@ class LibraryModel extends ChangeNotifier {
     final json = jsonDecode(raw) as Map<String, dynamic>;
     settings = ReadingSettings.fromJson(
       json['settings'] as Map<String, dynamic>,
+    );
+    folders.addAll(
+      ((json['folders'] as List?) ?? []).map(
+        (value) =>
+            FavoriteFolder.fromJson(Map<String, dynamic>.from(value as Map)),
+      ),
     );
     books.addAll(
       (json['books'] as List).map(
@@ -77,6 +93,7 @@ class LibraryModel extends ChangeNotifier {
   Future<void> save() {
     final raw = jsonEncode({
       'settings': settings.toJson(),
+      'folders': folders.map((folder) => folder.toJson()).toList(),
       'books': books.map((b) => b.toJson()).toList(),
     });
     _writes = _writes.then((_) => platform.saveState(raw)).catchError((
@@ -86,6 +103,35 @@ class LibraryModel extends ChangeNotifier {
       notifyListeners();
     });
     return _writes;
+  }
+
+  Book acceptImport(Map<String, dynamic> imported) {
+    final id = imported['id'] as String;
+    final source = imported['sourceUri'] as String?;
+    final matches = books.where(
+      (book) => book.id == id || (source != null && book.sourceUri == source),
+    );
+    final book = matches.isEmpty
+        ? Book(id, imported['name'] as String, sourceUri: source)
+        : matches.first;
+    book.name = imported['name'] as String;
+    books.remove(book);
+    books.insert(0, book);
+    changed();
+    return book;
+  }
+
+  bool addFolder(FavoriteFolder folder) {
+    if (folders.any((value) => value.uri == folder.uri)) return false;
+    folders.add(folder);
+    changed();
+    return true;
+  }
+
+  Future<void> removeFolder(FavoriteFolder folder) async {
+    await platform.releaseFolder(folder.uri);
+    folders.removeWhere((value) => value.uri == folder.uri);
+    changed();
   }
 
   void changed() {

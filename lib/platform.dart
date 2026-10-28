@@ -1,4 +1,5 @@
 import 'package:flutter/services.dart';
+import 'folder_models.dart';
 
 /// Android SAF and app-private persistence. No network or broad storage access.
 class ReaderPlatform {
@@ -7,6 +8,29 @@ class ReaderPlatform {
     final result = await channel.invokeMapMethod<String, dynamic>('pickBook');
     return result;
   }
+
+  Future<FavoriteFolder?> pickFolder() async {
+    final result = await channel.invokeMapMethod<String, dynamic>('pickFolder');
+    return result == null ? null : FavoriteFolder.fromJson(result);
+  }
+
+  Future<FolderListing> listFolder(
+    String treeUri, {
+    String? parentUri,
+    String query = '',
+  }) async {
+    final result = await channel.invokeMapMethod<String, dynamic>(
+      'listFolder',
+      {'treeUri': treeUri, 'parentUri': parentUri, 'query': query},
+    );
+    return FolderListing.fromJson(result!);
+  }
+
+  Future<void> cancelFolderScan() => channel.invokeMethod('cancelFolderScan');
+  Future<void> releaseFolder(String uri) =>
+      channel.invokeMethod('releaseFolder', uri);
+  Future<Map<String, dynamic>> importDocument(String uri) async =>
+      (await channel.invokeMapMethod<String, dynamic>('importDocument', uri))!;
 
   Future<String> readBook(String id) async =>
       (await channel.invokeMethod<String>('readBook', id))!;
