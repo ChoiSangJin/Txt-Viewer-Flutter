@@ -86,4 +86,48 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('이야기.txt'), findsOneWidget);
   });
+  testWidgets(
+    'long-book resume opens immediately and reflow preserves its anchor',
+    (tester) async {
+      final platform = FakePlatform()
+        ..text = List.filled(
+          10000,
+          '한글 소설의 문장입니다. Reading a novel offline.\n다음 문단을 읽습니다.\n\n',
+        ).join();
+      final model = LibraryModel(platform);
+      final book = Book('long-book', '긴 소설.txt', offset: 500000);
+      model.books.add(book);
+      await tester.pumpWidget(ReaderApp(model: model));
+      await tester.tap(find.text('긴 소설.txt'));
+      for (var i = 0; i < 80; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)),
+        );
+        await tester.pump(const Duration(milliseconds: 30));
+        if (find.byTooltip('읽기 설정').evaluate().isNotEmpty &&
+            find.byType(CircularProgressIndicator).evaluate().isEmpty)
+          break;
+      }
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+      expect(book.offset, 500000);
+      expect(find.textContaining('%'), findsOneWidget);
+      await tester.tap(find.byTooltip('이전 페이지'));
+      await tester.pump();
+      expect(book.offset, lessThan(500000));
+      await tester.tap(find.byTooltip('다음 페이지'));
+      await tester.pump();
+      expect(book.offset, 500000);
+      await tester.tap(find.byTooltip('읽기 설정'));
+      await tester.pumpAndSettle();
+      tester.widget<Slider>(find.byType(Slider).first).onChanged!(30);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('설정 닫기'));
+      await tester.pumpAndSettle();
+      expect(book.offset, 500000);
+      expect(model.settings.fontSize, 30);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pump();
+    },
+  );
 }

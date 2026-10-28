@@ -21,13 +21,14 @@ class ReaderScreen extends StatefulWidget {
 
 class _ReaderScreenState extends State<ReaderScreen>
     with WidgetsBindingObserver {
-  List<PageRange> pages = [];
-  int current = 0, generation = 0;
+  PageSession? session;
+  int generation = 0;
   bool paginating = true, menuOpen = false;
   String? layoutKey;
   Timer? saveTimer;
   double dragDistance = 0;
   static final Map<String, Future<void>> loadedFonts = {};
+  static final Set<String> readyFonts = {};
   ReadingSettings get settings => widget.model.settings;
   @override
   void initState() {
@@ -63,50 +64,51 @@ class _ReaderScreenState extends State<ReaderScreen>
     super.dispose();
   }
 
-  Future<void> paginate(Size size) async {
-    final token = ++generation;
+  Future<void> paginate(Size size, int token) async {
     final position = widget.book.offset;
-    final result = <PageRange>[];
     final style = settings.style;
     final spacing = settings.paragraphSpace;
-    // Explicitly load bundled fonts so initial metrics match the rendered page.
     final font = settings.font;
-    final loader = FontLoader(font)
-      ..addFont(
-        rootBundle.load(switch (font) {
-          'KoPubBatang' => 'assets/fonts/kopub.ttf',
-          'Pretendard' => 'assets/fonts/pretendard.ttf',
-          _ => 'assets/fonts/ridi.otf',
-        }),
-      );
-    await loadedFonts.putIfAbsent(font, loader.load);
-    if (!mounted || token != generation) return;
-    var start = 0;
-    while (start < widget.text.length) {
-      final range = nextPage(widget.text, start, size, style, spacing);
-      result.add(range);
-      start = range.end;
-      if (result.length % 8 == 0) {
-        await Future<void>.delayed(Duration.zero);
-        if (!mounted || token != generation) return;
+    if (!readyFonts.contains(font)) {
+      try {
+        await loadedFonts.putIfAbsent(font, () {
+          final loader = FontLoader(font)
+            ..addFont(
+              rootBundle.load(switch (font) {
+                'KoPubBatang' => 'assets/fonts/kopub.ttf',
+                'Pretendard' => 'assets/fonts/pretendard.ttf',
+                _ => 'assets/fonts/ridi.otf',
+              }),
+            );
+          return loader.load();
+        });
+        readyFonts.add(font);
+      } finally {
+        loadedFonts.remove(font);
       }
     }
     if (!mounted || token != generation) return;
-    if (result.isEmpty) result.add(const PageRange(0, 0));
-    final index = result.lastIndexWhere((p) => p.start <= position);
+    final next = PageSession(
+      text: widget.text,
+      offset: position,
+      size: size,
+      style: style,
+      spacing: spacing,
+    );
     setState(() {
-      pages = result;
-      current = index.clamp(0, pages.length - 1);
+      session = next;
       paginating = false;
     });
+    if (widget.book.offset != next.range.start) {
+      widget.book.offset = next.range.start;
+      widget.model.save();
+    }
   }
 
   void turn(int direction) {
-    if (paginating || pages.isEmpty) return;
-    final next = (current + direction).clamp(0, pages.length - 1);
-    if (next == current) return;
-    setState(() => current = next);
-    widget.book.offset = pages[current].start;
+    if (paginating || session == null || !session!.move(direction)) return;
+    setState(() {});
+    widget.book.offset = session!.range.start;
     saveTimer?.cancel();
     saveTimer = Timer(const Duration(milliseconds: 250), widget.model.save);
   }
@@ -260,8 +262,9 @@ class _ReaderScreenState extends State<ReaderScreen>
           if (key != layoutKey) {
             layoutKey = key;
             paginating = true;
+            final token = ++generation;
             WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted) paginate(size);
+              if (mounted && token == generation) paginate(size, token);
             });
           }
           return GestureDetector(
@@ -297,8 +300,8 @@ class _ReaderScreenState extends State<ReaderScreen>
                             child: Text.rich(
                               readingSpan(
                                 widget.text.substring(
-                                  pages[current].start,
-                                  pages[current].end,
+                                  session!.range.start,
+                                  session!.range.end,
                                 ),
                                 settings.style,
                                 settings.paragraphSpace,
@@ -314,7 +317,9 @@ class _ReaderScreenState extends State<ReaderScreen>
                       children: [
                         IconButton(
                           tooltip: '이전 페이지',
-                          onPressed: current > 0 ? () => turn(-1) : null,
+                          onPressed: !paginating && session?.canPrevious == true
+                              ? () => turn(-1)
+                              : null,
                           icon: const Icon(Icons.chevron_left),
                           visualDensity: VisualDensity.compact,
                         ),
@@ -322,7 +327,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                           child: Text(
                             paginating
                                 ? '페이지 구성 중…'
-                                : '${current + 1} / ${pages.length}',
+                                : '${(session!.progress * 100).toStringAsFixed(1)}%',
                             textAlign: TextAlign.center,
                             style: Theme.of(context).textTheme.labelSmall,
                           ),
@@ -335,7 +340,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                         ),
                         IconButton(
                           tooltip: '다음 페이지',
-                          onPressed: current + 1 < pages.length
+                          onPressed: !paginating && session?.canNext == true
                               ? () => turn(1)
                               : null,
                           icon: const Icon(Icons.chevron_right),
