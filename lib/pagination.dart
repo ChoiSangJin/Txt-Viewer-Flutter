@@ -1,41 +1,15 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-
-/// The same spans and constraints are used for measuring and rendering pages.
-TextSpan readingSpan(String text, TextStyle style, double paragraphSpace) {
-  final parts = text.split('\n');
-  return TextSpan(
-    style: style,
-    children: [
-      for (var i = 0; i < parts.length; i++) ...[
-        TextSpan(text: parts[i]),
-        if (i < parts.length - 1)
-          TextSpan(
-            text: '\n',
-            style: TextStyle(
-              height: style.height! + paragraphSpace / style.fontSize!,
-            ),
-          ),
-      ],
-    ],
-  );
-}
+import 'line_layout.dart';
+export 'line_layout.dart' show LineLayout, LinePage, LinePagePainter;
 
 class PageRange {
   final int start, end;
-  const PageRange(this.start, this.end);
+  final LinePage? layout;
+  const PageRange(this.start, this.end, {this.layout});
+  factory PageRange.fromLayout(LinePage page) =>
+      PageRange(page.start, page.end, layout: page);
 }
-
-bool _betweenSurrogates(String text, int index) =>
-    index > 0 &&
-    index < text.length &&
-    text.codeUnitAt(index - 1) >= 0xD800 &&
-    text.codeUnitAt(index - 1) <= 0xDBFF &&
-    text.codeUnitAt(index) >= 0xDC00 &&
-    text.codeUnitAt(index) <= 0xDFFF;
-
-const _maxPageWindow = 12000;
-final _pageWhitespace = RegExp(r'\s');
 
 PageRange nextPage(
   String text,
@@ -44,79 +18,14 @@ PageRange nextPage(
   TextStyle style,
   double spacing,
 ) {
-  if (start >= text.length) return PageRange(text.length, text.length);
-  final painter = TextPainter(
-    textDirection: TextDirection.ltr,
-    textScaler: TextScaler.noScaling,
-  );
-  bool fits(int end) {
-    final safeEnd = _betweenSurrogates(text, end) ? end - 1 : end;
-    painter.text = readingSpan(text.substring(start, safeEnd), style, spacing);
-    painter.layout(maxWidth: size.width);
-    return painter.height <= size.height;
-  }
-
+  final layout = LineLayout(text, size, style, spacing);
   try {
-    // Grow from a small candidate instead of laying out 6,000 characters first.
-    final ceiling = (start + _maxPageWindow).clamp(0, text.length);
-    var low = start, high = (start + 512).clamp(0, ceiling);
-    if (fits(high)) {
-      low = high;
-      while (low < ceiling) {
-        high = (start + (high - start) * 2).clamp(0, ceiling);
-        if (!fits(high)) break;
-        low = high;
-      }
-    }
-    // The oversized paragraph already knows where the bottom visible line is.
-    // Probe its start to narrow the exact search to roughly one line, rather
-    // than repeatedly laying out every possible page-sized substring.
-    // Paragraph spacing can make a trailing newline's height differ from the
-    // same newline followed by text. Keep the established search for those
-    // mixed-height spans; use the shortcut only within a single paragraph.
-    if (low < high && !text.substring(start, high).contains('\n')) {
-      final local = painter.getPositionForOffset(Offset(0, size.height)).offset;
-      var probe =
-          start + painter.getLineBoundary(TextPosition(offset: local)).start;
-      if (_betweenSurrogates(text, probe)) probe--;
-      if (probe > low && probe < high) {
-        if (fits(probe)) {
-          low = probe;
-        } else {
-          high = probe - 1;
-        }
-      }
-    }
-    while (low < high) {
-      final middle = (low + high + 1) ~/ 2;
-      if (fits(middle)) {
-        low = middle;
-      } else {
-        high = middle - 1;
-      }
-    }
-    var end = low;
-    if (_betweenSurrogates(text, end)) end--;
-    if (end <= start) {
-      end = start + 1;
-      if (_betweenSurrogates(text, end)) end++;
-    }
-    if (end < text.length) {
-      // Search only this page's tail. Without nearby whitespace, a search
-      // on the whole novel can walk back through all preceding pages.
-      final tailStart = start + ((end - start) * 0.8).floor();
-      final whitespace = text
-          .substring(tailStart, end)
-          .lastIndexOf(_pageWhitespace);
-      if (whitespace >= 0) end = tailStart + whitespace + 1;
-    }
-    return PageRange(start, end);
+    return PageRange.fromLayout(layout.page(start, 0));
   } finally {
-    painter.dispose();
+    layout.dispose();
   }
 }
 
-/// Measure a contiguous preceding page without scanning from the book's start.
 PageRange previousPage(
   String text,
   int end,
@@ -124,53 +33,11 @@ PageRange previousPage(
   TextStyle style,
   double spacing,
 ) {
-  if (end <= 0) return const PageRange(0, 0);
-  final painter = TextPainter(
-    textDirection: TextDirection.ltr,
-    textScaler: TextScaler.noScaling,
-  );
-  bool fits(int start) {
-    final safeStart = _betweenSurrogates(text, start) ? start + 1 : start;
-    painter.text = readingSpan(text.substring(safeStart, end), style, spacing);
-    painter.layout(maxWidth: size.width);
-    return painter.height <= size.height;
-  }
-
+  final layout = LineLayout(text, size, style, spacing);
   try {
-    final floor = (end - _maxPageWindow).clamp(0, end);
-    var low = (end - 512).clamp(floor, end), high = end;
-    if (fits(low)) {
-      high = low;
-      while (high > floor) {
-        low = (end - (end - low) * 2).clamp(floor, end);
-        if (!fits(low)) break;
-        high = low;
-      }
-    }
-    while (low < high) {
-      final middle = (low + high) ~/ 2;
-      if (fits(middle)) {
-        high = middle;
-      } else {
-        low = middle + 1;
-      }
-    }
-    var start = high;
-    if (_betweenSurrogates(text, start)) start++;
-    if (start >= end) {
-      start = end - 1;
-      if (_betweenSurrogates(text, start)) start--;
-    }
-    if (start > 0) {
-      final prefixEnd = start + ((end - start) * 0.2).floor();
-      final whitespace = text
-          .substring(start, prefixEnd)
-          .indexOf(_pageWhitespace);
-      if (whitespace >= 0) start += whitespace + 1;
-    }
-    return PageRange(start, end);
+    return PageRange.fromLayout(layout.previous(end));
   } finally {
-    painter.dispose();
+    layout.dispose();
   }
 }
 
@@ -181,6 +48,7 @@ class PageSession extends ChangeNotifier {
   final Size size;
   final TextStyle style;
   final double spacing;
+  late final LineLayout lineLayout;
   final List<PageRange> _pages = [];
   List<int> _ends = [];
   int _current = 0;
@@ -196,6 +64,7 @@ class PageSession extends ChangeNotifier {
     required this.spacing,
     int offset = 0,
   }) {
+    lineLayout = LineLayout(text, size, style, spacing);
     seekOffset(offset);
   }
 
@@ -227,7 +96,16 @@ class PageSession extends ChangeNotifier {
   }
 
   List<int> get pageEnds => List<int>.unmodifiable(_ends);
-  PageRange _pageAt(int i) => PageRange(i == 0 ? 0 : _ends[i - 1], _ends[i]);
+  PageRange _pageAt(int i) {
+    final first = i ~/ LineLayout.pagesPerGroup * LineLayout.pagesPerGroup;
+    final groupStart = first == 0 ? 0 : _ends[first - 1];
+    return PageRange.fromLayout(lineLayout.page(groupStart, i - first));
+  }
+
+  PageRange _forward(int start) =>
+      PageRange.fromLayout(lineLayout.page(start, 0));
+  PageRange _backward(int end) =>
+      PageRange.fromLayout(lineLayout.previous(end));
 
   int? _containingIndex(int offset) {
     if (_ends.isEmpty || (offset >= _ends.last && !indexComplete)) return null;
@@ -256,13 +134,11 @@ class PageSession extends ChangeNotifier {
     var anchor = offset.clamp(0, text.length);
     _pages.clear();
     _current = 0;
-    if (_betweenSurrogates(text, anchor)) anchor--;
+    anchor = CharacterRange.at(text, anchor).stringBeforeLength;
     _pages.add(
       anchor == text.length && text.isNotEmpty
-          ? (_knownPage(anchor, endingAt: true) ??
-                previousPage(text, anchor, size, style, spacing))
-          : (_knownPage(anchor) ??
-                nextPage(text, anchor, size, style, spacing)),
+          ? (_knownPage(anchor, endingAt: true) ?? _backward(anchor))
+          : (_knownPage(anchor) ?? _forward(anchor)),
     );
     if (_ends.isEmpty && range.start == 0) _ends.add(range.end);
   }
@@ -271,9 +147,10 @@ class PageSession extends ChangeNotifier {
     var low = 0, high = _ends.length - 1;
     while (low <= high) {
       final middle = (low + high) ~/ 2;
-      final page = _pageAt(middle);
-      final value = endingAt ? page.end : page.start;
-      if (value == boundary) return page;
+      final value = endingAt
+          ? _ends[middle]
+          : (middle == 0 ? 0 : _ends[middle - 1]);
+      if (value == boundary) return _pageAt(middle);
       if (value < boundary) {
         low = middle + 1;
       } else {
@@ -298,7 +175,7 @@ class PageSession extends ChangeNotifier {
           (end <= previous &&
               !(text.isEmpty && values.length == 1 && end == 0)))
         return false;
-      if (_betweenSurrogates(text, end)) return false;
+      if (!CharacterRange.at(text, end).isEmpty) return false;
       previous = end;
     }
     _ends = List<int>.of(values);
@@ -309,9 +186,7 @@ class PageSession extends ChangeNotifier {
 
   void _appendPage() {
     if (indexComplete) return;
-    _ends.add(
-      nextPage(text, _ends.isEmpty ? 0 : _ends.last, size, style, spacing).end,
-    );
+    _ends.add(_pageAt(_ends.length).end);
   }
 
   Future<void> _pause(Duration duration) {
@@ -325,7 +200,7 @@ class PageSession extends ChangeNotifier {
     return waiter.future;
   }
 
-  Future<void> countAll({Duration pause = const Duration(milliseconds: 8)}) {
+  Future<void> countAll({Duration pause = const Duration(milliseconds: 1)}) {
     if (_closed) return Future<void>.value();
     if (indexFailed) _counting = null;
     return _counting ??= _countAll(pause);
@@ -344,8 +219,8 @@ class PageSession extends ChangeNotifier {
           batch++;
         } while (!_closed &&
             !indexComplete &&
-            batch < 4 &&
-            budget.elapsedMilliseconds < 6);
+            batch < 16 &&
+            budget.elapsedMilliseconds < 4);
         if (_closed) return;
         final now = currentPage;
         if (indexComplete ||
@@ -392,30 +267,22 @@ class PageSession extends ChangeNotifier {
   PageRange get range => _pages[_current];
   int get cachedPageCount => _pages.length;
   bool get canPrevious => range.start > 0;
-  bool get canNext =>
-      indexComplete ? currentPage! < totalPages! : range.end < text.length;
+  bool get canNext => range.end < text.length;
   double get progress => text.isEmpty ? 0 : range.end / text.length;
   bool move(int direction) {
     if (direction == 0 || _closed) return false;
     if (direction > 0) {
       if (!canNext) return false;
       if (_current + 1 == _pages.length) {
-        final next = indexComplete
-            ? _pageAt(_containingIndex(range.start)! + 1)
-            : (_knownPage(range.end) ??
-                  nextPage(text, range.end, size, style, spacing));
+        final next = _knownPage(range.end) ?? _forward(range.end);
         _pages.add(next);
       }
       _current++;
     } else {
       if (!canPrevious) return false;
       if (_current == 0) {
-        final before = indexComplete
-            ? _pageAt(
-                (_containingIndex(range.start)! - 1).clamp(0, _ends.length - 1),
-              )
-            : (_knownPage(range.start, endingAt: true) ??
-                  previousPage(text, range.start, size, style, spacing));
+        final before =
+            _knownPage(range.start, endingAt: true) ?? _backward(range.start);
         _pages.insert(0, before);
       } else {
         _current--;
@@ -432,6 +299,7 @@ class PageSession extends ChangeNotifier {
     final waiter = _indexWait;
     _indexWait = null;
     if (waiter != null && !waiter.isCompleted) waiter.complete();
+    lineLayout.dispose();
     super.dispose();
   }
 }

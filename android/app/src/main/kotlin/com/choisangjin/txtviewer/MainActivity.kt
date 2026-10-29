@@ -122,9 +122,9 @@ class MainActivity : FlutterActivity() {
         }
     }
 
-    @Suppress("DEPRECATION")
+    // Cache validity follows layout/font revisions and system font environment, not app releases.
     private fun pageLayout(layout: String): String =
-        "app-${packageManager.getPackageInfo(packageName, 0).versionCode}/$layout"
+        "layout-cache-v2/${android.os.Build.FINGERPRINT}/$layout"
 
     private fun pickFolder(result: MethodChannel.Result, expected: String?) {
         if (pendingPick != null) { result.error("BUSY", "선택기가 이미 열려 있습니다.", null); return }

@@ -125,7 +125,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     bool valid() =>
         mounted && token == generation && identical(session, active);
     final layout =
-        'goyo-pages-v1/flutter-3.35.7/${active.size.width}/${active.size.height}/'
+        'goyo-lines-v2/fonts-20261028/flutter-3.35.7/${active.size.width}/${active.size.height}/'
         '${active.style.fontFamily}/${active.style.fontSize}/${active.style.height}/${active.spacing}/${active.style.letterSpacing}';
     if (!valid()) return;
     final controller = PageIndexController(
@@ -364,16 +364,21 @@ class _ReaderScreenState extends State<ReaderScreen>
                         ? const Center(child: CircularProgressIndicator())
                         : Align(
                             alignment: Alignment.topLeft,
-                            child: Text.rich(
-                              readingSpan(
-                                widget.text.substring(
-                                  session!.range.start,
-                                  session!.range.end,
-                                ),
-                                settings.style,
-                                settings.paragraphSpace,
+                            child: Semantics(
+                              label: widget.text.substring(
+                                session!.range.start,
+                                session!.range.end,
                               ),
-                              textScaler: TextScaler.noScaling,
+                              textDirection: TextDirection.ltr,
+                              child: CustomPaint(
+                                size: session!.size,
+                                painter: LinePagePainter(
+                                  session!.lineLayout,
+                                  session!.range.layout!,
+                                  DefaultTextStyle.of(context).style.color ??
+                                      Colors.black,
+                                ),
+                              ),
                             ),
                           ),
                   ),

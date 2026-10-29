@@ -19,6 +19,7 @@ void main() {
       var writes = 0;
       PageIndexController controller(PageSession pages) => PageIndexController(
         session: pages,
+        interval: const Duration(milliseconds: 5),
         load: () async => {'token': 'book-layout', 'ends': cached},
         save: (token, ends) async {
           cached = ends;
@@ -29,7 +30,7 @@ void main() {
       final one = controller(first);
       final counting = one.start();
       await tester.pump();
-      await tester.pump(const Duration(seconds: 2));
+      await tester.pump(const Duration(milliseconds: 5));
       expect(writes, greaterThanOrEqualTo(1));
       expect(cached!.last, lessThan(first.text.length));
       await one.close();

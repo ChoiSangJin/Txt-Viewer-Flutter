@@ -1,6 +1,26 @@
 // Previous release's exact boundary search, retained as a regression oracle.
 import 'package:flutter/material.dart';
-import 'package:txt_viewer/pagination.dart' show PageRange, readingSpan;
+import 'package:txt_viewer/pagination.dart' show PageRange;
+
+int legacyLayoutCalls = 0;
+TextSpan readingSpan(String text, TextStyle style, double paragraphSpace) {
+  final parts = text.split('\n');
+  return TextSpan(
+    style: style,
+    children: [
+      for (var i = 0; i < parts.length; i++) ...[
+        TextSpan(text: parts[i]),
+        if (i < parts.length - 1)
+          TextSpan(
+            text: '\n',
+            style: TextStyle(
+              height: style.height! + paragraphSpace / style.fontSize!,
+            ),
+          ),
+      ],
+    ],
+  );
+}
 
 bool _betweenSurrogates(String text, int index) =>
     index > 0 &&
@@ -26,6 +46,7 @@ PageRange legacyNextPage(
     textScaler: TextScaler.noScaling,
   );
   bool fits(int end) {
+    legacyLayoutCalls++;
     final safeEnd = _betweenSurrogates(text, end) ? end - 1 : end;
     painter.text = readingSpan(text.substring(start, safeEnd), style, spacing);
     painter.layout(maxWidth: size.width);
@@ -42,6 +63,25 @@ PageRange legacyNextPage(
         high = (start + (high - start) * 2).clamp(0, ceiling);
         if (!fits(high)) break;
         low = high;
+      }
+    }
+    // The oversized paragraph already knows where the bottom visible line is.
+    // Probe its start to narrow the exact search to roughly one line, rather
+    // than repeatedly laying out every possible page-sized substring.
+    // Paragraph spacing can make a trailing newline's height differ from the
+    // same newline followed by text. Keep the established search for those
+    // mixed-height spans; use the shortcut only within a single paragraph.
+    if (low < high && !text.substring(start, high).contains('\n')) {
+      final local = painter.getPositionForOffset(Offset(0, size.height)).offset;
+      var probe =
+          start + painter.getLineBoundary(TextPosition(offset: local)).start;
+      if (_betweenSurrogates(text, probe)) probe--;
+      if (probe > low && probe < high) {
+        if (fits(probe)) {
+          low = probe;
+        } else {
+          high = probe - 1;
+        }
       }
     }
     while (low < high) {
