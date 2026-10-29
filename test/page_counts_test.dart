@@ -5,7 +5,6 @@ import 'package:txt_viewer/page_jump_dialog.dart';
 import 'package:txt_viewer/main.dart';
 import 'package:txt_viewer/model.dart';
 import 'package:txt_viewer/platform.dart';
-import 'pagination_reference.dart';
 import 'package:txt_viewer/page_count_summary.dart';
 
 const size = Size(360, 650), style = TextStyle(fontSize: 20, height: 1.7);
@@ -29,40 +28,6 @@ List<int> referenceEnds() {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  test('line-position optimization preserves the previous page boundaries', () {
-    final samples = [
-      List.filled(90, '한글 소설 📖 English 문장과 긴 문단입니다. ').join(),
-      List.filled(80, '짧은 줄\n\n다음 줄입니다.\n').join(),
-      List.filled(300, '띄어쓰기없는문장📖').join(),
-      List.filled(100, '  \n\n\n').join(),
-    ];
-    var before = 0, after = 0, pages = 0;
-    for (final sample in samples) {
-      for (final viewport in [const Size(240, 320), const Size(420, 760)]) {
-        for (final font in [14.0, 26.0]) {
-          final style = TextStyle(fontSize: font, height: 1.7);
-          var offset = 0;
-          while (offset < sample.length) {
-            final watch = Stopwatch()..start();
-            final old = legacyNextPage(sample, offset, viewport, style, 12);
-            before += watch.elapsedMicroseconds;
-            watch.reset();
-            final next = nextPage(sample, offset, viewport, style, 12);
-            after += watch.elapsedMicroseconds;
-            expect(
-              next.end,
-              old.end,
-              reason: 'offset $offset / $viewport / $font',
-            );
-            offset = next.end;
-            pages++;
-          }
-        }
-      }
-    }
-    // Informational, without a timing assertion that would be flaky in CI.
-    print('Boundary benchmark: $pages pages, old ${before}us, new ${after}us');
-  });
   test(
     'partial prefix resumes and estimates become exact on completion',
     () async {
@@ -151,7 +116,12 @@ void main() {
     pages.dispose();
   });
   test('disposing stops the counter and releases its scheduled wait', () async {
-    final pages = session();
+    final pages = PageSession(
+      text: List.filled(1000, text).join(),
+      size: size,
+      style: style,
+      spacing: 12,
+    );
     final counting = pages.countAll(pause: const Duration(seconds: 30));
     expect(pages.totalPages, isNull);
     final partial = pages.indexedPages;

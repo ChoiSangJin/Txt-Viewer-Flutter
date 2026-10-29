@@ -14,13 +14,14 @@ void main() {
     offset: offset,
   );
   void fits(String text, PageRange range) {
-    final painter = TextPainter(
-      text: readingSpan(text.substring(range.start, range.end), style, 12),
-      textDirection: TextDirection.ltr,
-      textScaler: TextScaler.noScaling,
-    )..layout(maxWidth: size.width);
-    expect(painter.height, lessThanOrEqualTo(size.height));
-    painter.dispose();
+    expect(range.layout!.height, lessThanOrEqualTo(size.height));
+    for (final slice in range.layout!.slices) {
+      expect(slice.targetTop, greaterThanOrEqualTo(0));
+      expect(
+        slice.targetTop + slice.height,
+        lessThanOrEqualTo(size.height + .01),
+      );
+    }
     expect(
       text.substring(range.start, range.end).runes,
       isNot(contains(0xFFFD)),

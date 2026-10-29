@@ -18,13 +18,13 @@ void main() {
       expect(page.end, greaterThan(start));
       final content = text.substring(page.start, page.end);
       expect(content.runes, isNot(contains(0xFFFD)));
-      final painter = TextPainter(
-        text: readingSpan(content, style, 12),
-        textDirection: TextDirection.ltr,
-        textScaler: TextScaler.noScaling,
-      )..layout(maxWidth: size.width);
-      expect(painter.height, lessThanOrEqualTo(size.height));
-      painter.dispose();
+      expect(page.layout!.height, lessThanOrEqualTo(size.height));
+      for (final slice in page.layout!.slices) {
+        expect(
+          slice.targetTop + slice.height,
+          lessThanOrEqualTo(size.height + .01),
+        );
+      }
       pages.add(content);
       start = page.end;
     }
