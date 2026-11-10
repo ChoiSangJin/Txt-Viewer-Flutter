@@ -28,7 +28,7 @@ class _ReaderScreenState extends State<ReaderScreen>
   PageSession? session;
   PageIndexController? pageIndex;
   int generation = 0;
-  bool paginating = true, menuOpen = false;
+  bool paginating = true, menuOpen = false, pageJumpOpen = false;
   String? layoutKey;
   Timer? saveTimer;
   double dragDistance = 0;
@@ -165,23 +165,24 @@ class _ReaderScreenState extends State<ReaderScreen>
     final active = session;
     if (paginating || active == null || menuOpen) return;
     menuOpen = true;
-    final selection = await showDialog<PageJumpSelection>(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => PageJumpDialog(
-        session: active,
-        isCurrent: () => mounted && !paginating && identical(active, session),
-      ),
-    );
-    menuOpen = false;
-    if (!mounted) return;
-    if (paginating || !identical(active, session)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('화면 크기가 바뀌었습니다. 페이지 이동을 다시 열어 주세요.')),
+    pageJumpOpen = true;
+    PageJumpSelection? selection;
+    try {
+      selection = await showDialog<PageJumpSelection>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => PageJumpDialog(
+          session: active,
+          isCurrent: () => mounted && !paginating && identical(active, session),
+        ),
       );
-      return;
+    } finally {
+      menuOpen = false;
+      pageJumpOpen = false;
+      // Reconcile any deferred viewport change, even when the user cancels.
+      if (mounted) setState(() {});
     }
-    if (selection == null) return;
+    if (!mounted || selection == null) return;
     active.seekOffset(selection.offset);
     setState(() {});
     widget.book.offset = active.range.start;
@@ -336,7 +337,10 @@ class _ReaderScreenState extends State<ReaderScreen>
           );
           final key =
               '${size.width}/${size.height}/${settings.font}/${settings.fontSize}/${settings.lineHeight}/${settings.paragraphSpace}';
-          if (key != layoutKey) {
+          // IME/status/navigation bar changes must not dispose the session
+          // being used by a modal jump. Apply its source offset first, then
+          // reflow to the latest viewport after the dialog has closed.
+          if (key != layoutKey && !pageJumpOpen) {
             layoutKey = key;
             pageIndex?.close();
             pageIndex = null;

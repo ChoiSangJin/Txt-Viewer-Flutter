@@ -64,6 +64,21 @@ jobs:
           umask 077
           printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$ANDROID_KEYSTORE_PATH"
           flutter build apk --release --target-platform android-arm64
+      - name: Verify update signing certificate
+        run: |
+          python3 - <<'PYVERIFY'
+          import os, pathlib, subprocess
+          sdk = pathlib.Path(os.environ['ANDROID_HOME'])
+          signers = sorted(sdk.glob('build-tools/*/apksigner'))
+          assert signers, 'Android APK signature verifier is missing'
+          apk = 'build/app/outputs/flutter-apk/app-release.apk'
+          certificate = subprocess.check_output(
+              [str(signers[-1]), 'verify', '--print-certs', apk], text=True)
+          expected = 'ebd50026880286899e286b7cab2a240aed5b64a3b19b5a1b12addc6a8d2b8d6e'
+          assert 'certificate SHA-256 digest: ' + expected in certificate, \
+              'APK signing certificate differs from the current release'
+          print('Update signing certificate verified')
+          PYVERIFY
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
