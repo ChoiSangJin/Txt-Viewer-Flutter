@@ -1,4 +1,5 @@
 import 'dart:collection';
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 
 /// A bounded layout window; a page retains only offsets, never a native paragraph.
@@ -29,7 +30,7 @@ class _Line {
 
 class _Block {
   final int start, limit, end, rawEnd;
-  final TextPainter painter;
+  ui.Paragraph paragraph;
   final List<_Line> lines;
   Color? color;
   _Block(
@@ -37,7 +38,7 @@ class _Block {
     this.limit,
     this.end,
     this.rawEnd,
-    this.painter,
+    this.paragraph,
     this.lines,
     this.color,
   );
@@ -54,6 +55,8 @@ class _Group {
 /// Measures bounded text windows once, then packs their existing lines into pages.
 /// Canonical groups restart every four pages, so a restored page index needs no
 /// book-prefix layout to recover the exact shaping context used by the renderer.
+/// Sequential counting continues the previous group's block instead of shaping
+/// the same characters again; line breaks do not depend on where a window starts.
 class LineLayout {
   static const pagesPerGroup = 4;
   static const windowCharacters = 2048;
@@ -65,6 +68,7 @@ class LineLayout {
   final double spacing;
   final _blocks = LinkedHashMap<String, _Block>();
   final _groups = LinkedHashMap<int, _Group>();
+  _Group? _last;
   bool closed = false;
   int layoutCalls = 0, measuredCharacters = 0;
   Color _paintColor = Colors.black;
@@ -85,6 +89,16 @@ class LineLayout {
     return offset;
   }
 
+  ui.Paragraph _shape(int start, int end, Color color) {
+    final builder =
+        ui.ParagraphBuilder(
+            style.getParagraphStyle(textDirection: TextDirection.ltr),
+          )
+          ..pushStyle(style.copyWith(color: color).getTextStyle())
+          ..addText(text.substring(start, end));
+    return builder.build()..layout(ui.ParagraphConstraints(width: size.width));
+  }
+
   _Block _block(int start, {int? limit}) {
     final stop = limit ?? text.length;
     final key = '$start/$stop';
@@ -96,17 +110,10 @@ class LineLayout {
     var end = safeOffset((start + windowCharacters).clamp(start, stop));
     _Block? result;
     while (true) {
-      final painter = TextPainter(
-        text: TextSpan(
-          text: text.substring(start, end),
-          style: style.copyWith(color: _paintColor),
-        ),
-        textDirection: TextDirection.ltr,
-        textScaler: TextScaler.noScaling,
-      )..layout(maxWidth: size.width);
+      final paragraph = _shape(start, end, _paintColor);
       layoutCalls++;
       measuredCharacters += end - start;
-      final metrics = painter.computeLineMetrics();
+      final metrics = paragraph.computeLineMetrics();
       final lines = <_Line>[];
       var cursor = start;
       for (final line in metrics) {
@@ -114,16 +121,23 @@ class LineLayout {
           break; // Ignore the synthetic empty line after a final LF.
         int lineEnd;
         if (line.hardBreak) {
-          final localNewline = painter.plainText.indexOf('\n', cursor - start);
-          lineEnd = localNewline >= 0 ? start + localNewline + 1 : end;
+          final newline = text.indexOf('\n', cursor);
+          lineEnd = newline >= 0 && newline < end ? newline + 1 : end;
         } else {
-          final position = painter.getPositionForOffset(
-            Offset(
-              line.left + line.width / 2,
-              line.baseline - line.unscaledAscent / 2,
-            ),
-          );
-          lineEnd = start + painter.getLineBoundary(position).end;
+          // Binary-search the first offset on a later line. getLineBoundary
+          // copies every line's metrics on each call, which made this loop
+          // as expensive as shaping the text itself.
+          var low = cursor - start + 1, high = end - start;
+          while (low < high) {
+            final middle = (low + high) ~/ 2;
+            final number = paragraph.getLineNumberAt(middle);
+            if (number == null || number > line.lineNumber) {
+              high = middle;
+            } else {
+              low = middle + 1;
+            }
+          }
+          lineEnd = start + low;
         }
         lineEnd = safeOffset(lineEnd.clamp(cursor, end));
         if (lineEnd <= cursor) continue;
@@ -157,13 +171,13 @@ class LineLayout {
           stop,
           lines.isEmpty ? start : lines.last.end,
           end,
-          painter,
+          paragraph,
           lines,
           _paintColor,
         );
         break;
       }
-      painter.dispose();
+      paragraph.dispose();
       end = safeOffset((start + (end - start) * 2).clamp(start, stop));
     }
     _blocks[key] = result;
@@ -171,7 +185,7 @@ class LineLayout {
     while (_blocks.length > maxBlocks ||
         (cachedCharacters > 32768 && _blocks.length > 1)) {
       final first = _blocks.remove(_blocks.keys.first)!;
-      first.painter.dispose();
+      first.paragraph.dispose();
     }
     return result;
   }
@@ -198,8 +212,19 @@ class LineLayout {
 
   LinePage page(int groupStart, int index) {
     assert(index >= 0 && index < pagesPerGroup);
-    final group = _groups.remove(groupStart) ?? _Group(groupStart);
+    var group = _groups.remove(groupStart);
+    if (group == null) {
+      group = _Group(groupStart);
+      final last = _last;
+      if (last != null && last.cursor == groupStart) {
+        // Counting forward: keep reading lines from the block already shaped.
+        group.blockStart = last.blockStart;
+        group.blockLimit = last.blockLimit;
+        group.line = last.line;
+      }
+    }
     _groups[groupStart] = group;
+    _last = group;
     while (_groups.length > 4) {
       _groups.remove(_groups.keys.first);
     }
@@ -282,18 +307,18 @@ class LineLayout {
     for (final slice in page.slices) {
       final block = _block(slice.blockStart, limit: slice.blockLimit);
       if (block.color != color) {
-        block.painter.text = TextSpan(
-          text: text.substring(block.start, block.rawEnd),
-          style: style.copyWith(color: color),
-        );
-        block.painter.layout(maxWidth: size.width);
+        block.paragraph.dispose();
+        block.paragraph = _shape(block.start, block.rawEnd, color);
         block.color = color;
       }
       canvas.save();
       canvas.clipRect(
         Rect.fromLTWH(0, slice.targetTop, size.width, slice.height),
       );
-      block.painter.paint(canvas, Offset(0, slice.targetTop - slice.sourceTop));
+      canvas.drawParagraph(
+        block.paragraph,
+        Offset(0, slice.targetTop - slice.sourceTop),
+      );
       canvas.restore();
     }
     canvas.restore();
@@ -303,10 +328,11 @@ class LineLayout {
     if (closed) return;
     closed = true;
     for (final block in _blocks.values) {
-      block.painter.dispose();
+      block.paragraph.dispose();
     }
     _blocks.clear();
     _groups.clear();
+    _last = null;
   }
 }
 
