@@ -192,8 +192,8 @@ Gradle은 Kotlin DSL(`android/app/build.gradle.kts`)을 사용합니다. Android
 | `ANDROID_KEY_ALIAS` | 서명키 별칭 |
 | `ANDROID_KEY_PASSWORD` | 키 비밀번호 |
 
-GitHub Actions의 `Android` 워크플로는 PR과 main에서 분석·Flutter 테스트·ARM64 디버그
-빌드·Kotlin 디코더 테스트를 실행하고 APK를 artifact로 보관합니다.
+GitHub Actions의 `Android` 워크플로는 PR과 main에서 분석·Flutter 테스트·Kotlin 디코더
+테스트를 실행합니다. 디버그 APK는 빌드하거나 보관하지 않습니다.
 GitHub Release 게시에는 저장소 Actions secrets에 아래 항목을 설정한 뒤, **main**에서
 워크플로를 수동 실행하고 `release_tag`(예: `v1.0.0`)를 입력합니다.
 
