@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'platform.dart';
 import 'folder_models.dart';
 
-enum ReaderTheme { system, light, dark, black }
+enum ReaderTheme { system, light, sepia, dark, green, black }
 
 class ReadingSettings {
   String font = 'RIDIBatang';

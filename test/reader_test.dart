@@ -142,6 +142,27 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('이야기.txt'), findsOneWidget);
   });
+  testWidgets('each reading theme paints its own page colour', (tester) async {
+    final model = LibraryModel(FakePlatform());
+    await tester.pumpWidget(ReaderApp(model: model));
+    for (final entry in {
+      ReaderTheme.light: const Color(0xFFF8F4EA),
+      ReaderTheme.sepia: const Color(0xFFF1E7D0),
+      ReaderTheme.dark: const Color(0xFF1E1E1E),
+      ReaderTheme.green: const Color(0xFF1B2A22),
+      ReaderTheme.black: Colors.black,
+    }.entries) {
+      model.settings.theme = entry.key;
+      model.changed();
+      await tester.pumpAndSettle();
+      final theme = Theme.of(tester.element(find.byType(Scaffold)));
+      expect(
+        theme.scaffoldBackgroundColor,
+        entry.value,
+        reason: '${entry.key}',
+      );
+    }
+  });
   test('the last read page survives a new model', () async {
     final platform = FakePlatform();
     final original = LibraryModel(platform);
