@@ -290,8 +290,10 @@ class _ReaderScreenState extends State<ReaderScreen>
                             ChoiceChip(
                               label: Text(switch (theme) {
                                 ReaderTheme.system => '시스템',
-                                ReaderTheme.light => '라이트',
-                                ReaderTheme.dark => '다크',
+                                ReaderTheme.light => '아이보리',
+                                ReaderTheme.sepia => '세피아',
+                                ReaderTheme.dark => '차콜',
+                                ReaderTheme.green => '다크 그린',
                                 ReaderTheme.black => 'AMOLED 블랙',
                               }),
                               selected: settings.theme == theme,

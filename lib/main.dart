@@ -43,41 +43,57 @@ class ReaderApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       themeMode: switch (model.settings.theme) {
         ReaderTheme.system => ThemeMode.system,
-        ReaderTheme.light => ThemeMode.light,
+        ReaderTheme.light || ReaderTheme.sepia => ThemeMode.light,
         _ => ThemeMode.dark,
       },
-      theme: ThemeData(
-        // Warm beige paper: FFEDDB page, EDCDBB and E3B7A0 accents, BF9270 seed.
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFFBF9270))
-            .copyWith(
-              surface: const Color(0xFFFFEDDB),
-              surfaceContainerLow: const Color(0xFFFBE6D4),
-              surfaceContainer: const Color(0xFFF7DFCC),
-              surfaceContainerHigh: const Color(0xFFF2D6C3),
-              surfaceContainerHighest: const Color(0xFFEDCDBB),
-              secondaryContainer: const Color(0xFFEDCDBB),
-              primaryContainer: const Color(0xFFE3B7A0),
-              outlineVariant: const Color(0xFFE3B7A0),
-            ),
-        fontFamily: 'Pretendard',
-        useMaterial3: true,
-      ),
-      darkTheme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFFBF9270),
-          brightness: Brightness.dark,
-          surface: model.settings.theme == ReaderTheme.black
-              ? Colors.black
-              : null,
+      theme: model.settings.theme == ReaderTheme.sepia
+          // Pale sepia with dark brown ink.
+          ? paperTheme(const Color(0xFFF1E7D0), const Color(0xFF3E2F23))
+          // Warm ivory with charcoal ink.
+          : paperTheme(const Color(0xFFF8F4EA), const Color(0xFF333333)),
+      darkTheme: switch (model.settings.theme) {
+        // Forest green keeps night reading free of halation.
+        ReaderTheme.green => paperTheme(
+          const Color(0xFF1B2A22),
+          const Color(0xFFCFDCCB),
         ),
-        scaffoldBackgroundColor: model.settings.theme == ReaderTheme.black
-            ? Colors.black
-            : null,
-        fontFamily: 'Pretendard',
-        useMaterial3: true,
-      ),
+        ReaderTheme.black => paperTheme(Colors.black, const Color(0xFFD0D0D0)),
+        // Charcoal with soft ivory ink.
+        _ => paperTheme(const Color(0xFF1E1E1E), const Color(0xFFD8D3C8)),
+      },
       home: LibraryScreen(model: model, startupError: startupError),
     ),
+  );
+}
+
+/// A quiet two-colour theme: every surface and accent is a blend of the page
+/// colour and the ink colour, so nothing competes with the text.
+ThemeData paperTheme(Color page, Color ink) {
+  Color tone(double amount) => Color.lerp(page, ink, amount)!;
+  final brightness = ThemeData.estimateBrightnessForColor(page);
+  return ThemeData(
+    colorScheme: ColorScheme.fromSeed(seedColor: ink, brightness: brightness)
+        .copyWith(
+          surface: page,
+          onSurface: ink,
+          onSurfaceVariant: tone(.75),
+          surfaceContainerLowest: page,
+          surfaceContainerLow: tone(.03),
+          surfaceContainer: tone(.05),
+          surfaceContainerHigh: tone(.08),
+          surfaceContainerHighest: tone(.11),
+          primary: tone(.85),
+          onPrimary: page,
+          primaryContainer: tone(.14),
+          onPrimaryContainer: ink,
+          secondaryContainer: tone(.11),
+          onSecondaryContainer: ink,
+          outline: tone(.5),
+          outlineVariant: tone(.18),
+        ),
+    scaffoldBackgroundColor: page,
+    fontFamily: 'Pretendard',
+    useMaterial3: true,
   );
 }
 
@@ -209,7 +225,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
             onPressed: () => showLicensePage(
               context: context,
               applicationName: '고요 · TXT 리더',
-              applicationVersion: '1.4.2',
+              applicationVersion: '1.4.3',
             ),
           ),
         ],
