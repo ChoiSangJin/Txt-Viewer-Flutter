@@ -5,6 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:txt_viewer/main.dart';
 import 'package:txt_viewer/model.dart';
 import 'package:txt_viewer/platform.dart';
+import 'package:txt_viewer/page_jump_dialog.dart';
+import 'package:txt_viewer/pagination.dart' show LinePagePainter;
 
 class FakePlatform extends ReaderPlatform {
   String? state;
@@ -302,4 +304,97 @@ void main() {
       await tester.pump();
     },
   );
+  for (final mode in ['쪽 번호', '진행률', '취소', '회전']) {
+    testWidgets('page jump $mode survives keyboard system bar changes', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(360, 720);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetViewInsets);
+      addTearDown(tester.view.resetViewPadding);
+      addTearDown(tester.view.resetPadding);
+      final platform = FakePlatform();
+      final model = LibraryModel(platform);
+      final book = Book('jump-bars', '키보드 이동.txt');
+      model.books.add(book);
+      await tester.pumpWidget(ReaderApp(model: model));
+      await tester.tap(find.text(book.name));
+      for (var i = 0; i < 80; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)),
+        );
+        await tester.pump(const Duration(milliseconds: 30));
+        if (find.byTooltip('페이지 이동').evaluate().isNotEmpty &&
+            find.byType(CircularProgressIndicator).evaluate().isEmpty)
+          break;
+      }
+      await tester.tap(find.byTooltip('페이지 이동'));
+      await tester.pumpAndSettle();
+      final active = tester
+          .widget<PageJumpDialog>(find.byType(PageJumpDialog))
+          .session;
+      final expectedPage = await active.locatePage(2);
+      final numeric = mode == '쪽 번호' || mode == '회전';
+      final expected = numeric
+          ? expectedPage!.range.start
+          : mode == '진행률'
+          ? platform.text.length ~/ 2
+          : book.offset;
+      // Android may reveal the status/navigation bars when the IME opens.
+      tester.view.viewPadding = const FakeViewPadding(top: 24, bottom: 24);
+      tester.view.padding = const FakeViewPadding(top: 24);
+      tester.view.viewInsets = const FakeViewPadding(bottom: 260);
+      if (mode == '회전') {
+        tester.view.physicalSize = const Size(720, 480);
+        tester.view.resetViewInsets();
+      }
+      await tester.pumpAndSettle();
+      expect(
+        active.lineLayout.closed,
+        isFalse,
+        reason:
+            'System insets must not invalidate the dialog pagination session',
+      );
+      if (mode == '취소') {
+        await tester.ensureVisible(find.text('취소'));
+        await tester.tap(find.text('취소'));
+      } else {
+        await tester.ensureVisible(find.byType(TextField).at(numeric ? 1 : 0));
+        await tester.enterText(
+          find.byType(TextField).at(numeric ? 1 : 0),
+          numeric ? '2' : '50',
+        );
+        await tester.ensureVisible(find.text(numeric ? '쪽으로 이동' : '위치로 이동'));
+        await tester.tap(find.text(numeric ? '쪽으로 이동' : '위치로 이동'));
+      }
+      await tester.pumpAndSettle();
+      tester.view.resetViewInsets();
+      tester.view.resetViewPadding();
+      tester.view.resetPadding();
+      await tester.pumpAndSettle();
+      expect(book.offset, expected);
+      expect(find.textContaining('화면 크기가 바뀌었습니다'), findsNothing);
+      expect(tester.takeException(), isNull);
+      if (mode == '회전') {
+        final paint = tester.widget<CustomPaint>(
+          find.byWidgetPredicate(
+            (widget) =>
+                widget is CustomPaint && widget.painter is LinePagePainter,
+          ),
+        );
+        expect(
+          (paint.painter! as LinePagePainter).layout.size,
+          const Size(672, 396),
+        );
+      }
+      await model.save();
+      final restored = LibraryModel(platform);
+      await restored.load();
+      expect(restored.books.single.offset, expected);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+    });
+  }
 }

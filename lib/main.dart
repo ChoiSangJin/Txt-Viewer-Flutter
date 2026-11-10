@@ -225,7 +225,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
             onPressed: () => showLicensePage(
               context: context,
               applicationName: '고요 · TXT 리더',
-              applicationVersion: '1.4.3',
+              applicationVersion: '1.4.4',
             ),
           ),
         ],
