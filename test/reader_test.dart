@@ -142,6 +142,60 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('이야기.txt'), findsOneWidget);
   });
+  test('the last read page survives a new model', () async {
+    final platform = FakePlatform();
+    final original = LibraryModel(platform);
+    original.books.add(
+      Book('paged', '쪽수.txt', offset: 900)
+        ..page = 3
+        ..pages = 40,
+    );
+    original.books.add(Book('unknown', '모름.txt'));
+    await original.save();
+    final restored = LibraryModel(platform);
+    await restored.load();
+    expect(restored.books.first.page, 3);
+    expect(restored.books.first.pages, 40);
+    expect(restored.books.last.page, isNull);
+  });
+  testWidgets(
+    'tapping the page only turns pages and history shows the current page',
+    (tester) async {
+      final platform = FakePlatform();
+      final model = LibraryModel(platform);
+      final book = Book('tap-book', '탭 넘김.txt');
+      model.books.add(book);
+      await tester.pumpWidget(ReaderApp(model: model));
+      expect(find.text('새로운 이야기'), findsOneWidget);
+      await tester.tap(find.text(book.name));
+      for (var i = 0; i < 80; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)),
+        );
+        await tester.pump(const Duration(milliseconds: 30));
+        if (book.pages != null) break;
+      }
+      expect(book.page, 1);
+      final size = tester.view.physicalSize / tester.view.devicePixelRatio;
+      // The centre used to open the settings sheet; it now belongs to "next".
+      await tester.tapAt(Offset(size.width * .55, size.height * .5));
+      await tester.pump();
+      expect(find.text('서재로 돌아가기'), findsNothing);
+      expect(book.page, 2);
+      await tester.tapAt(Offset(size.width * .55, size.height * .5));
+      await tester.pump();
+      expect(book.page, 3);
+      await tester.tapAt(Offset(size.width * .45, size.height * .5));
+      await tester.pump();
+      expect(book.page, 2);
+      await tester.tap(find.byTooltip('읽기 설정'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('서재로 돌아가기'));
+      await tester.tap(find.text('서재로 돌아가기'));
+      await tester.pumpAndSettle();
+      expect(find.text('2쪽 / ${book.pages}쪽'), findsOneWidget);
+    },
+  );
   testWidgets(
     'long-book resume opens immediately and reflow preserves its anchor',
     (tester) async {

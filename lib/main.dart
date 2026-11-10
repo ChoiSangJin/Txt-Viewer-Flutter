@@ -47,13 +47,24 @@ class ReaderApp extends StatelessWidget {
         _ => ThemeMode.dark,
       },
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF526A58)),
+        // Warm beige paper: FFEDDB page, EDCDBB and E3B7A0 accents, BF9270 seed.
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFFBF9270))
+            .copyWith(
+              surface: const Color(0xFFFFEDDB),
+              surfaceContainerLow: const Color(0xFFFBE6D4),
+              surfaceContainer: const Color(0xFFF7DFCC),
+              surfaceContainerHigh: const Color(0xFFF2D6C3),
+              surfaceContainerHighest: const Color(0xFFEDCDBB),
+              secondaryContainer: const Color(0xFFEDCDBB),
+              primaryContainer: const Color(0xFFE3B7A0),
+              outlineVariant: const Color(0xFFE3B7A0),
+            ),
         fontFamily: 'Pretendard',
         useMaterial3: true,
       ),
       darkTheme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
-          seedColor: const Color(0xFF9DB5A2),
+          seedColor: const Color(0xFFBF9270),
           brightness: Brightness.dark,
           surface: model.settings.theme == ReaderTheme.black
               ? Colors.black
@@ -198,7 +209,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
             onPressed: () => showLicensePage(
               context: context,
               applicationName: '고요 · TXT 리더',
-              applicationVersion: '1.4.1',
+              applicationVersion: '1.4.2',
             ),
           ),
         ],
@@ -316,7 +327,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
                                   leading: const Icon(Icons.menu_book_outlined),
                                   title: Text(book.name),
                                   subtitle: Text(
-                                    book.offset > 0
+                                    book.page != null
+                                        ? (book.pages != null
+                                              ? '${book.page}쪽 / ${book.pages}쪽'
+                                              : '${book.page}쪽')
+                                        : book.offset > 0
                                         ? '읽던 곳부터 계속 읽기'
                                         : '새로운 이야기',
                                   ),

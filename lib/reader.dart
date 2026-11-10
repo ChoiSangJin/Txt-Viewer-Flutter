@@ -73,6 +73,13 @@ class _ReaderScreenState extends State<ReaderScreen>
     super.dispose();
   }
 
+  void recordPage() {
+    final active = session;
+    if (active == null) return;
+    widget.book.page = active.currentPage;
+    widget.book.pages = active.totalPages;
+  }
+
   Future<void> paginate(Size size, int token) async {
     final position = widget.book.offset;
     final style = settings.style;
@@ -111,6 +118,9 @@ class _ReaderScreenState extends State<ReaderScreen>
       session = next;
       paginating = false;
     });
+    // The page number becomes known as the index is restored or counted.
+    next.addListener(recordPage);
+    recordPage();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted && token == generation && identical(session, next))
         preparePageIndex(next, token);
@@ -146,6 +156,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     if (paginating || session == null || !session!.move(direction)) return;
     setState(() {});
     widget.book.offset = session!.range.start;
+    recordPage();
     saveTimer?.cancel();
     saveTimer = Timer(const Duration(milliseconds: 250), widget.model.save);
   }
@@ -174,6 +185,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     active.seekOffset(selection.offset);
     setState(() {});
     widget.book.offset = active.range.start;
+    recordPage();
     saveTimer?.cancel();
     widget.model.save();
     if (selection.actualPage != null &&
@@ -337,14 +349,9 @@ class _ReaderScreenState extends State<ReaderScreen>
           return GestureDetector(
             behavior: HitTestBehavior.opaque,
             onTapUp: (event) {
+              // The whole page turns pages; settings open from their button.
               final fraction = event.localPosition.dx / constraints.maxWidth;
-              if (fraction < 0.3) {
-                turn(-1);
-              } else if (fraction > 0.7) {
-                turn(1);
-              } else {
-                showSettings();
-              }
+              turn(fraction < 0.5 ? -1 : 1);
             },
             onHorizontalDragStart: (_) => dragDistance = 0,
             onHorizontalDragUpdate: (event) => dragDistance += event.delta.dx,
