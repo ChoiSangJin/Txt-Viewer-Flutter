@@ -125,7 +125,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     bool valid() =>
         mounted && token == generation && identical(session, active);
     final layout =
-        'goyo-lines-v2/fonts-20261028/flutter-3.35.7/${active.size.width}/${active.size.height}/'
+        'goyo-lines-v3/fonts-20261028/flutter-3.35.7/${active.size.width}/${active.size.height}/'
         '${active.style.fontFamily}/${active.style.fontSize}/${active.style.height}/${active.spacing}/${active.style.letterSpacing}';
     if (!valid()) return;
     final controller = PageIndexController(

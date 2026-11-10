@@ -140,6 +140,34 @@ void main() {
   );
 
   test(
+    'sequential counting shapes each character once and matches restored groups',
+    () async {
+      final text = List.filled(
+        900,
+        '한글 소설의 문장입니다. English words in a book. العربية \t📖\n다음 문단입니다.\n\n',
+      ).join();
+      for (final size in [viewport, const Size(240, 320)]) {
+        final pages = session(text, size: size);
+        await pages.countAll(pause: Duration.zero);
+        expect(
+          pages.lineLayout.measuredCharacters,
+          lessThan(text.length * 1.1),
+        );
+        // Walking backwards rebuilds every group from its own start, as a
+        // restored index does, and must land on the counted boundaries.
+        final restored = session(text, size: size);
+        expect(restored.restorePageEnds(pages.pageEnds), isTrue);
+        for (var i = pages.totalPages!; i > 0; i--) {
+          final found = await restored.locatePage(i);
+          expect(found!.range.end, pages.pageEnds[i - 1], reason: 'page $i');
+        }
+        pages.dispose();
+        restored.dispose();
+      }
+    },
+  );
+
+  test(
     'all fonts preserve graphemes and complete text across canonical pages',
     () async {
       final text = List.filled(
