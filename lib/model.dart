@@ -48,6 +48,8 @@ class Book {
   String name;
   final String? sourceUri;
   int offset;
+  // Page shown when the book was last read; null until the reader has counted it.
+  int? page, pages;
   bool hidden;
   Book(
     this.id,
@@ -60,6 +62,8 @@ class Book {
     'id': id,
     'name': name,
     'offset': offset,
+    'page': page,
+    'pages': pages,
     'sourceUri': sourceUri,
     'hidden': hidden,
   };
@@ -68,6 +72,8 @@ class Book {
       name = json['name'] as String,
       sourceUri = json['sourceUri'] as String?,
       hidden = json['hidden'] as bool? ?? false,
+      page = json['page'] as int?,
+      pages = json['pages'] as int?,
       offset = (json['offset'] as int? ?? 0).clamp(0, 1 << 31);
 }
 
